@@ -20,11 +20,15 @@ maintainer doesn't get flagged, and neither does an old, obscure but legitimate 
 ## Install
 
 ```sh
-npx agentinel init
+npm install --save-dev agentinel && npx asen init
 ```
 
 That writes a config file, installs a git pre-commit hook, and registers a Claude Code hook. No
 account, no server, no configuration required.
+
+You can also try it without installing anything, with `npx agentinel init`. It works, but the
+Claude Code hook then resolves through npx on every command you run, which adds close to a second
+each time. Installing it in the repo is worth it once you decide to keep it.
 
 ## What it looks like
 
