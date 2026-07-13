@@ -5,7 +5,7 @@ import { repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { configPath, saveConfig } from '../config/load.js';
 import { defaultConfig } from '../config/schema.js';
 
-const HOOK_MARKER = 'agentsentinel';
+const HOOK_MARKER = 'agentinel';
 
 export function runInit(): number {
   const repoRoot = repoRootOrCwd();
@@ -14,10 +14,8 @@ export function runInit(): number {
   wireClaudeCodeHook(repoRoot, claudeCodeCommand(repoRoot));
   wirePreCommitHook(repoRoot, gitHookCommand(repoRoot));
 
-  console.log('\nagentsentinel is set up. New npm packages will be checked before they land.');
-  console.log(
-    'Default mode is warn. Set "mode": "strict" in .agentsentinel.json to block instead.',
-  );
+  console.log('\nagentinel is set up. New npm packages will be checked before they land.');
+  console.log('Default mode is warn. Set "mode": "strict" in .agentinel.json to block instead.');
   return 0;
 }
 
@@ -32,7 +30,7 @@ function hasLocalInstall(repoRoot: string): boolean {
 function claudeCodeCommand(repoRoot: string): string {
   return hasLocalInstall(repoRoot)
     ? '"$CLAUDE_PROJECT_DIR"/node_modules/.bin/asen'
-    : 'npx agentsentinel';
+    : 'npx agentinel';
 }
 
 /**
@@ -41,17 +39,17 @@ function claudeCodeCommand(repoRoot: string): string {
  * leaving the hook pointing at /node_modules and failing every commit.
  */
 function gitHookCommand(repoRoot: string): string {
-  return hasLocalInstall(repoRoot) ? './node_modules/.bin/asen' : 'npx agentsentinel';
+  return hasLocalInstall(repoRoot) ? './node_modules/.bin/asen' : 'npx agentinel';
 }
 
 function writeConfig(repoRoot: string): void {
   const path = configPath(repoRoot);
   if (existsSync(path)) {
-    console.log('.agentsentinel.json already exists, left alone');
+    console.log('.agentinel.json already exists, left alone');
     return;
   }
   saveConfig(repoRoot, defaultConfig());
-  console.log('wrote .agentsentinel.json');
+  console.log('wrote .agentinel.json');
 }
 
 function wireClaudeCodeHook(repoRoot: string, command: string): void {

@@ -1,4 +1,4 @@
-# agentsentinel
+# agentinel
 
 Catches AI hallucinated npm packages before your coding agent installs them.
 
@@ -8,7 +8,7 @@ has a name now: slopsquatting. When your agent says "I'll install `fast-json-val
 have no way to tell, in that moment, whether it's a real library or a trap someone registered two
 weeks ago.
 
-`agentsentinel` checks two things before the install lands:
+`agentinel` checks two things before the install lands:
 
 - **Age**, when the package was first published to npm
 - **Popularity**, how many downloads it got in the last month
@@ -20,7 +20,7 @@ maintainer doesn't get flagged, and neither does an old, obscure but legitimate 
 ## Install
 
 ```sh
-npx agentsentinel init
+npx agentinel init
 ```
 
 That writes a config file, installs a git pre-commit hook, and registers a Claude Code hook. No
@@ -30,15 +30,17 @@ account, no server, no configuration required.
 
 ```
 $ Claude is installing: fast-json-validator-pro
-⚠ agentsentinel: this package looks suspicious
+⚠ agentinel: fast-json-validator-pro looks suspicious
   registered 9 days ago · 4 downloads/month
   this pattern matches known "slopsquatting" attacks
-  → install proceeded (warn mode). Run `asen allow fast-json-validator-pro` to silence this.
+  → run `asen allow fast-json-validator-pro --reason "..."` to silence this
 ```
 
-Warn is the default. It tells you and gets out of the way. If you want it to actually stop the
-install, set `"mode": "strict"` in `.agentsentinel.json` and Claude Code will treat a flagged
-package as a denied permission and look for another approach.
+Warn is the default. It tells you and gets out of the way, and it tells Claude too, so the agent
+knows the package looked wrong and can suggest an established alternative instead of pressing on.
+
+If you want it to actually stop the install, set `"mode": "strict"` in `.agentinel.json`. Claude
+Code then treats a flagged package as a denied permission and looks for another approach.
 
 ## Two hooks, so it works either way
 
@@ -51,7 +53,7 @@ package as a denied permission and look for another approach.
 ## Commands
 
 ```sh
-npx agentsentinel init                   # set up hooks + config in this repo
+npx agentinel init                   # set up hooks + config in this repo
 asen check                               # check staged dependencies now
 asen check some-package                  # check a specific package
 asen allow <pkg> --reason "why"          # allowlist a package, with a logged reason
@@ -59,7 +61,7 @@ asen allow <pkg> --reason "why"          # allowlist a package, with a logged re
 
 `asen check` exits non-zero when something is flagged, so it also works as a CI step.
 
-The allowlist lives in `.agentsentinel.json` and gets committed, so the reason is visible to
+The allowlist lives in `.agentinel.json` and gets committed, so the reason is visible to
 everyone on the repo. It's a trail, not a silent bypass.
 
 ## This has already happened

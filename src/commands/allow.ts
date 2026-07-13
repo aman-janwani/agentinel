@@ -34,6 +34,6 @@ export function runAllow(name: string | undefined, reason: string | undefined): 
   });
   saveConfig(repoRoot, config);
 
-  console.log(`allowlisted ${name} in .agentsentinel.json`);
+  console.log(`allowlisted ${name} in .agentinel.json`);
   return 0;
 }

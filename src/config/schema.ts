@@ -1,6 +1,6 @@
 import type { Config } from '../types.js';
 
-export const CONFIG_FILENAME = '.agentsentinel.json';
+export const CONFIG_FILENAME = '.agentinel.json';
 
 export function defaultConfig(): Config {
   return { mode: 'warn', allow: [] };

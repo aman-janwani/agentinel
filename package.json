@@ -1,5 +1,5 @@
 {
-  "name": "agentsentinel",
+  "name": "agentinel",
   "version": "0.1.0",
   "description": "Catches AI hallucinated npm packages before an agent installs them",
   "license": "MIT",
@@ -7,12 +7,12 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aman-janwani/agentsentinel.git"
+    "url": "git+https://github.com/aman-janwani/agentinel.git"
   },
   "bugs": {
-    "url": "https://github.com/aman-janwani/agentsentinel/issues"
+    "url": "https://github.com/aman-janwani/agentinel/issues"
   },
-  "homepage": "https://github.com/aman-janwani/agentsentinel#readme",
+  "homepage": "https://github.com/aman-janwani/agentinel#readme",
   "bin": {
     "asen": "./dist/asen.js"
   },

@@ -34,7 +34,7 @@ export async function runPreCommitHook(): Promise<number> {
   }
 
   if (loadConfig(repoRoot).mode === 'strict') {
-    process.stderr.write('commit blocked by agentsentinel (strict mode)\n');
+    process.stderr.write('commit blocked by agentinel (strict mode)\n');
     return 1;
   }
 

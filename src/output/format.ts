@@ -35,7 +35,7 @@ function lines(verdict: Verdict): string[] | null {
 
     case 'flagged':
       return [
-        `⚠ agentsentinel: ${verdict.name} looks suspicious`,
+        `⚠ agentinel: ${verdict.name} looks suspicious`,
         `  registered ${days(verdict.ageDays)} ago · ${downloads(verdict.downloads)}/month`,
         '  this pattern matches known "slopsquatting" attacks',
         `  → run \`asen allow ${verdict.name} --reason "..."\` to silence this`,
@@ -43,7 +43,7 @@ function lines(verdict: Verdict): string[] | null {
 
     case 'not-found':
       return [
-        `✗ agentsentinel: ${verdict.name} does not exist on the npm registry`,
+        `✗ agentinel: ${verdict.name} does not exist on the npm registry`,
         '  no package by that name is published publicly, so this install will fail',
         '  a name an agent invented is exactly what a slopsquatter waits to register',
         '  → check the spelling before installing anything under this name',
@@ -51,7 +51,7 @@ function lines(verdict: Verdict): string[] | null {
 
     case 'skipped':
       return [
-        `agentsentinel: could not check ${verdict.name} (${verdict.reason})`,
+        `agentinel: could not check ${verdict.name} (${verdict.reason})`,
         '  the check did not run, and nothing was blocked',
       ];
   }
@@ -98,11 +98,11 @@ export function denyReason(verdicts: Verdict[]): string {
   }
 
   if (problems.length === 0) {
-    return 'Blocked by agentsentinel.';
+    return 'Blocked by agentinel.';
   }
 
   return (
-    `Blocked by agentsentinel: ${problems.join(', ')}. ` +
+    `Blocked by agentinel: ${problems.join(', ')}. ` +
     'This matches the slopsquatting pattern. Verify the package, pick an established ' +
     'alternative, or allowlist it with `asen allow <pkg> --reason "..."`.'
   );

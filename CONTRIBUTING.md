@@ -1,4 +1,4 @@
-# Contributing to agentsentinel
+# Contributing to agentinel
 
 Thanks for wanting to help. This project is small and narrow on purpose, so contributions that fit
 that scope are the ones most likely to get merged quickly.

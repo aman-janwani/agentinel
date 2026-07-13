@@ -10,7 +10,7 @@ export function configPath(repoRoot: string): string {
 }
 
 /**
- * Reads .agentsentinel.json from the repo. A missing file is normal, it just means the
+ * Reads .agentinel.json from the repo. A missing file is normal, it just means the
  * defaults apply. A file that exists but isn't valid JSON is a real problem worth saying out
  * loud, since silently ignoring it would hide someone's allowlist.
  */
@@ -36,7 +36,7 @@ export function loadConfig(repoRoot: string): Config {
 
   // Anything the config file got wrong is said out loud. Silently ignoring it is how someone ends
   // up believing they are in strict mode when they are not.
-  return parseConfig(raw, (message) => process.stderr.write(`agentsentinel: ${message}\n`));
+  return parseConfig(raw, (message) => process.stderr.write(`agentinel: ${message}\n`));
 }
 
 export function saveConfig(repoRoot: string, config: Config): void {

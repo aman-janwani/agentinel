@@ -78,17 +78,17 @@ main(argv)
     const message = error instanceof Error ? error.message : String(error);
 
     if (error instanceof ConfigError) {
-      console.error(`agentsentinel: ${message}`);
+      console.error(`agentinel: ${message}`);
       process.exitCode = failsOpen(argv) ? 0 : 1;
       return;
     }
 
     if (failsOpen(argv)) {
-      console.error(`agentsentinel: check skipped (${message})`);
+      console.error(`agentinel: check skipped (${message})`);
       process.exitCode = 0;
       return;
     }
 
-    console.error(`agentsentinel: ${message}`);
+    console.error(`agentinel: ${message}`);
     process.exitCode = 1;
   });

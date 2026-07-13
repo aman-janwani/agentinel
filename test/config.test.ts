@@ -24,7 +24,7 @@ afterEach(() => {
 });
 
 function readConfig(): { mode: string; allow: { name: string; reason: string }[] } {
-  return JSON.parse(readFileSync(join(dir, '.agentsentinel.json'), 'utf8'));
+  return JSON.parse(readFileSync(join(dir, '.agentinel.json'), 'utf8'));
 }
 
 describe('loadConfig', () => {
@@ -33,7 +33,7 @@ describe('loadConfig', () => {
   });
 
   it('says so loudly when the config is not valid JSON, rather than ignoring it', () => {
-    writeFileSync(join(dir, '.agentsentinel.json'), '{ broken', 'utf8');
+    writeFileSync(join(dir, '.agentinel.json'), '{ broken', 'utf8');
 
     expect(() => loadConfig(dir)).toThrow(ConfigError);
   });
@@ -65,7 +65,7 @@ describe('loadConfig', () => {
 
   it('reads a strict mode config with an allowlist', () => {
     writeFileSync(
-      join(dir, '.agentsentinel.json'),
+      join(dir, '.agentinel.json'),
       JSON.stringify({
         mode: 'strict',
         allow: [{ name: 'x', reason: 'mine', date: '2026-01-01' }],
@@ -108,7 +108,7 @@ describe('runAllow', () => {
   });
 
   it('keeps the existing mode when adding to the allowlist', () => {
-    writeFileSync(join(dir, '.agentsentinel.json'), JSON.stringify({ mode: 'strict' }), 'utf8');
+    writeFileSync(join(dir, '.agentinel.json'), JSON.stringify({ mode: 'strict' }), 'utf8');
 
     runAllow('my-pkg', 'trusted');
 

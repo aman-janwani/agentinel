@@ -68,7 +68,7 @@ describe('runInit', () => {
     runInit();
 
     const hook = readFileSync(join(repo, '.git', 'hooks', 'pre-commit'), 'utf8');
-    expect(hook).toContain('npx agentsentinel hook pre-commit');
+    expect(hook).toContain('npx agentinel hook pre-commit');
   });
 
   it('installs into core.hooksPath, which is where husky makes git look', () => {
