@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+
+# Internal planning docs, kept local and out of the public repo
+AGENTS.md
+PRD.md
+DESIGN.md
+IMPLEMENTATION.md
+docs/use-cases.html
