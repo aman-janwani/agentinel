@@ -2,8 +2,23 @@
 // of returning nothing: a missed package is a missed warning, but a wrong guess means we warn
 // about something the user never asked for, which trains people to ignore the tool.
 
-/** Subcommands that install a named package. `pnpm add` / `yarn add` are out of scope for v1. */
-const INSTALL_SUBCOMMANDS = new Set(['install', 'i', 'add']);
+/**
+ * Package managers that install from the npm registry. pnpm and yarn are different clients for
+ * the same registry, so the age and download signals mean exactly the same thing for all three.
+ */
+const PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn']);
+
+/** Subcommands that install a named package. npm accepts several aliases for `install`. */
+const INSTALL_SUBCOMMANDS = new Set([
+  'install',
+  'i',
+  'add',
+  'in',
+  'ins',
+  'inst',
+  'insta',
+  'instal',
+]);
 
 /** Flags whose value is a separate token, so the value must not be read as a package name. */
 const VALUE_TAKING_FLAGS = new Set(['--registry', '--prefix', '--workspace', '-w']);
@@ -47,7 +62,8 @@ function splitSegments(command: string): string[] {
 
 function parseSegment(segment: string): string[] {
   const tokens = tokenize(segment);
-  if (tokens[0] !== 'npm') {
+  const manager = tokens[0];
+  if (manager === undefined || !PACKAGE_MANAGERS.has(manager)) {
     return [];
   }
 
@@ -113,7 +129,18 @@ function consumedBy(flag: string): number {
  */
 function packageNameFrom(token: string): string | null {
   const separator = token.startsWith('@') ? token.indexOf('@', 1) : token.indexOf('@');
-  const name = separator === -1 ? token : token.slice(0, separator);
+  if (separator === -1) {
+    return isValidPackageName(token) ? token : null;
+  }
 
+  const specifier = token.slice(separator + 1);
+
+  // An aliased install, `local-name@npm:real-package`, installs the package on the right. Reading
+  // the name on the left would check something nobody is installing and miss what actually lands.
+  if (specifier.startsWith('npm:')) {
+    return packageNameFrom(specifier.slice('npm:'.length));
+  }
+
+  const name = token.slice(0, separator);
   return isValidPackageName(name) ? name : null;
 }
