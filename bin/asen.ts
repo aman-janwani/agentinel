@@ -1,3 +1,4 @@
+import { positionals, readFlag } from '../src/cli/args.js';
 import { runAllow } from '../src/commands/allow.js';
 import { runCheck } from '../src/commands/check.js';
 import { runInit } from '../src/commands/init.js';
@@ -20,13 +21,10 @@ async function main(argv: string[]): Promise<number> {
       return runInit();
 
     case 'check':
-      return runCheck(rest.filter((arg) => !arg.startsWith('-')));
+      return runCheck(positionals(rest));
 
     case 'allow':
-      return runAllow(
-        rest.find((arg) => !arg.startsWith('-')),
-        readFlag(rest, '--reason'),
-      );
+      return runAllow(positionals(rest)[0], readFlag(rest, '--reason'));
 
     // Not documented in the usage text on purpose. These are what the installed hooks call.
     case 'hook':
@@ -55,15 +53,6 @@ async function runHook(name: string | undefined): Promise<number> {
   }
   console.error(`unknown hook: ${name}`);
   return 1;
-}
-
-function readFlag(args: string[], flag: string): string | undefined {
-  const index = args.indexOf(flag);
-  if (index !== -1) {
-    return args[index + 1];
-  }
-  const inline = args.find((arg) => arg.startsWith(`${flag}=`));
-  return inline ? inline.slice(flag.length + 1) : undefined;
 }
 
 main(process.argv.slice(2))
