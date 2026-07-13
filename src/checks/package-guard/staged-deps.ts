@@ -3,36 +3,53 @@ import { execFileSync } from 'node:child_process';
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies'] as const;
 
 /**
- * Package names added to package.json in the staged changes, compared against HEAD.
- * Only additions matter. A version bump on a package that was already there is not a new
- * package and is not our problem.
+ * Package names added to any staged package.json, compared against HEAD.
+ *
+ * Every staged package.json is checked, not just the one at the repo root, so a dependency added
+ * to a workspace package in a monorepo is caught too. Only additions matter. A version bump on a
+ * package that was already there is not a new package.
  */
 export function newStagedDependencies(repoRoot: string): string[] {
-  const staged = readStaged(repoRoot);
-  if (!staged) {
+  const names: string[] = [];
+
+  for (const path of stagedManifestPaths(repoRoot)) {
+    const staged = gitJson(repoRoot, `:${path}`);
+    if (!staged) {
+      continue;
+    }
+
+    const before = collectNames(gitJson(repoRoot, `HEAD:${path}`) ?? {});
+    for (const name of collectNames(staged)) {
+      if (!before.has(name) && !names.includes(name)) {
+        names.push(name);
+      }
+    }
+  }
+
+  return names;
+}
+
+/** The package.json files touched by the staged changes, as repo relative paths. */
+function stagedManifestPaths(repoRoot: string): string[] {
+  const output = git(repoRoot, ['diff', '--cached', '--name-only', '--diff-filter=ACMR']);
+  if (output === null) {
     return [];
   }
 
-  const committed = readFromHead(repoRoot) ?? {};
-  const before = collectNames(committed);
-  const after = collectNames(staged);
-
-  return [...after].filter((name) => !before.has(name));
+  return output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line === 'package.json' || line.endsWith('/package.json'));
 }
 
 export function repoRootOrCwd(): string {
-  try {
-    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    return process.cwd();
-  }
+  const root = git(process.cwd(), ['rev-parse', '--show-toplevel']);
+  return root === null ? process.cwd() : root.trim();
 }
 
 function collectNames(manifest: Record<string, unknown>): Set<string> {
   const names = new Set<string>();
+
   for (const field of DEP_FIELDS) {
     const section = manifest[field];
     if (typeof section === 'object' && section !== null) {
@@ -41,28 +58,14 @@ function collectNames(manifest: Record<string, unknown>): Set<string> {
       }
     }
   }
+
   return names;
 }
 
-function readStaged(repoRoot: string): Record<string, unknown> | null {
-  // ":package.json" is git's syntax for the staged (index) version of the file.
-  return gitJson(repoRoot, ':package.json');
-}
-
-function readFromHead(repoRoot: string): Record<string, unknown> | null {
-  // Missing on the very first commit, which is a normal case, not an error.
-  return gitJson(repoRoot, 'HEAD:package.json');
-}
-
+/** Reads a JSON file at a git revision. Missing is normal, for example on the first commit. */
 function gitJson(repoRoot: string, revision: string): Record<string, unknown> | null {
-  let text: string;
-  try {
-    text = execFileSync('git', ['show', revision], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-  } catch {
+  const text = git(repoRoot, ['show', revision]);
+  if (text === null) {
     return null;
   }
 
@@ -71,6 +74,19 @@ function gitJson(repoRoot: string, revision: string): Record<string, unknown> | 
     return typeof parsed === 'object' && parsed !== null
       ? (parsed as Record<string, unknown>)
       : null;
+  } catch {
+    return null;
+  }
+}
+
+function git(cwd: string, args: string[]): string | null {
+  try {
+    return execFileSync('git', args, {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 10 * 1024 * 1024,
+    });
   } catch {
     return null;
   }
