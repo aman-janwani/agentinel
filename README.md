@@ -42,9 +42,11 @@ package as a denied permission and look for another approach.
 
 ## Two hooks, so it works either way
 
-- **Claude Code hook** (`PreToolUse`): catches the install command before it runs.
-- **Git pre-commit hook**: diffs `package.json` and catches new dependencies on commit. Doesn't
-  care which agent, editor, or human added them.
+- **Claude Code hook** (`PreToolUse`): catches the install command before it runs. Reads `npm`,
+  `pnpm`, and `yarn` installs, since all three resolve from the same registry.
+- **Git pre-commit hook**: diffs every `package.json` and catches new dependencies on commit,
+  including workspace packages in a monorepo. Doesn't care which agent, editor, or human added
+  them. If your repo uses husky, the hook is installed where husky points git.
 
 ## Commands
 
@@ -54,6 +56,8 @@ asen check                               # check staged dependencies now
 asen check some-package                  # check a specific package
 asen allow <pkg> --reason "why"          # allowlist a package, with a logged reason
 ```
+
+`asen check` exits non-zero when something is flagged, so it also works as a CI step.
 
 The allowlist lives in `.agentsentinel.json` and gets committed, so the reason is visible to
 everyone on the repo. It's a trail, not a silent bypass.
@@ -81,8 +85,9 @@ should never be the reason you can't commit.
 
 ## Scope
 
-npm only for now. This is deliberately one narrow check that works, not a general security suite.
-It isn't a CVE scanner, that's what Snyk and Socket are for.
+The npm registry only, which covers npm, pnpm, and yarn since they all install from it. No PyPI,
+no Cargo. This is deliberately one narrow check that works, not a general security suite. It isn't
+a CVE scanner, that's what Snyk and Socket are for.
 
 ## Contributing
 

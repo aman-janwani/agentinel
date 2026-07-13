@@ -14,8 +14,9 @@ because the idea is bad, but because it changes what this project is:
   registry and downloads APIs. Anything that would cost money per user is out.
 - **No AI or LLM calls.** The detection is deliberately rule based against structured data, which
   is what keeps it fast, predictable, and free.
-- **npm only for now.** PyPI, Cargo, and others are a possible later addition, not something to add
-  before the npm version has proven useful.
+- **The npm registry only.** That covers npm, pnpm, and yarn, since all three install from it.
+  PyPI, Cargo, and others are a possible later addition, not something to add before this has
+  proven useful.
 - **Thresholds are fixed** at 30 days and 1,000 monthly downloads. Making them configurable is a
   planned later change, not a current one.
 - **Warn is the default.** Blocking stays opt in.
