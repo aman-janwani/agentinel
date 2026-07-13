@@ -1,7 +1,7 @@
 import type { DownloadsResult } from '../../types.js';
+import { get, isTimeout } from './http.js';
 
 const DOWNLOADS_URL = 'https://api.npmjs.org/downloads/point/last-month';
-const TIMEOUT_MS = 3000;
 
 /**
  * Asks the npm downloads API how many times a package was downloaded in the last month.
@@ -16,9 +16,9 @@ export async function fetchDownloads(name: string): Promise<DownloadsResult> {
 
   let response: Response;
   try {
-    response = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+    response = await get(url);
   } catch (error) {
-    return { kind: 'unavailable', reason: describeFetchError(error) };
+    return { kind: 'unavailable', reason: describeFailure(error) };
   }
 
   if (response.status === 404) {
@@ -32,8 +32,8 @@ export async function fetchDownloads(name: string): Promise<DownloadsResult> {
   let body: unknown;
   try {
     body = await response.json();
-  } catch {
-    return { kind: 'unavailable', reason: 'downloads response was not valid JSON' };
+  } catch (error) {
+    return { kind: 'unavailable', reason: describeFailure(error) };
   }
 
   const lastMonth = readDownloadCount(body);
@@ -57,9 +57,6 @@ function readDownloadCount(body: unknown): number | null {
   return downloads;
 }
 
-function describeFetchError(error: unknown): string {
-  if (error instanceof Error && error.name === 'TimeoutError') {
-    return 'downloads request timed out';
-  }
-  return 'could not reach the npm downloads API';
+function describeFailure(error: unknown): string {
+  return isTimeout(error) ? 'downloads request timed out' : 'could not reach the npm downloads API';
 }

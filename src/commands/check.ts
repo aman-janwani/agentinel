@@ -21,9 +21,13 @@ export async function runCheck(names: string[]): Promise<number> {
   const verdicts = await checkPackages(candidates, config);
 
   let risky = 0;
+  let skipped = 0;
   for (const verdict of verdicts) {
     if (isRisky(verdict)) {
       risky += 1;
+    }
+    if (verdict.kind === 'skipped') {
+      skipped += 1;
     }
     const message = formatVerdict(verdict);
     if (message) {
@@ -32,7 +36,16 @@ export async function runCheck(names: string[]): Promise<number> {
   }
 
   if (risky === 0) {
-    console.log(`checked ${candidates.length} package(s), nothing suspicious`);
+    // Never say "nothing suspicious" about a package we did not actually manage to check. That
+    // reads as a clean bill of health for a check that never ran.
+    const checked = verdicts.length - skipped;
+    if (skipped > 0) {
+      console.log(
+        `checked ${checked} package(s), nothing suspicious. ${skipped} could not be checked`,
+      );
+    } else {
+      console.log(`checked ${checked} package(s), nothing suspicious`);
+    }
     return 0;
   }
 

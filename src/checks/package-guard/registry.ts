@@ -1,7 +1,7 @@
 import type { RegistryResult } from '../../types.js';
+import { get, isTimeout } from './http.js';
 
 const REGISTRY_URL = 'https://registry.npmjs.org';
-const TIMEOUT_MS = 3000;
 
 /**
  * Looks up a package on the public npm registry to find out when it was first published.
@@ -16,9 +16,9 @@ export async function fetchRegistry(name: string): Promise<RegistryResult> {
 
   let response: Response;
   try {
-    response = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+    response = await get(url);
   } catch (error) {
-    return { kind: 'unavailable', reason: describeFetchError(error) };
+    return { kind: 'unavailable', reason: describeFailure(error) };
   }
 
   if (response.status === 404) {
@@ -36,7 +36,7 @@ export async function fetchRegistry(name: string): Promise<RegistryResult> {
     // The timeout can fire while the body is still downloading, not just while connecting. Some
     // of these documents are large, 15MB for @typescript-eslint/parser, so this is a normal way
     // to fail on a slow connection and must not be reported as malformed JSON.
-    return { kind: 'unavailable', reason: describeFetchError(error) };
+    return { kind: 'unavailable', reason: describeFailure(error) };
   }
 
   const created = readCreatedDate(body);
@@ -70,23 +70,6 @@ function readCreatedDate(body: unknown): Date | null {
   return parsed;
 }
 
-function describeFetchError(error: unknown): string {
-  if (isTimeout(error)) {
-    return 'registry request timed out';
-  }
-  return 'could not reach the npm registry';
-}
-
-/**
- * A timeout surfaces as a TimeoutError when it fires during the request, but when it fires while
- * the body is still streaming it arrives as an AbortError, sometimes wrapped in a TypeError.
- */
-function isTimeout(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-    return true;
-  }
-  return isTimeout(error.cause);
+function describeFailure(error: unknown): string {
+  return isTimeout(error) ? 'registry request timed out' : 'could not reach the npm registry';
 }
