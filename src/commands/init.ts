@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { configPath, saveConfig } from '../config/load.js';
 import { defaultConfig } from '../config/schema.js';
@@ -8,11 +9,10 @@ const HOOK_MARKER = 'agentsentinel';
 
 export function runInit(): number {
   const repoRoot = repoRootOrCwd();
-  const command = hookCommand(repoRoot);
 
   writeConfig(repoRoot);
-  wireClaudeCodeHook(repoRoot, command);
-  wirePreCommitHook(repoRoot, command);
+  wireClaudeCodeHook(repoRoot, claudeCodeCommand(repoRoot));
+  wirePreCommitHook(repoRoot, gitHookCommand(repoRoot));
 
   console.log('\nagentsentinel is set up. New npm packages will be checked before they land.');
   console.log(
@@ -21,14 +21,27 @@ export function runInit(): number {
   return 0;
 }
 
+function hasLocalInstall(repoRoot: string): boolean {
+  return existsSync(join(repoRoot, 'node_modules', '.bin', 'asen'));
+}
+
 /**
- * Prefer the copy installed in the repo, so the hook does not pay npx resolution cost on every
- * single Bash call. Fall back to npx for the `npx agentsentinel init` path, where the package was
- * never actually added as a dependency.
+ * Claude Code runs hooks from an unspecified working directory, so the path has to be absolute.
+ * CLAUDE_PROJECT_DIR is the variable it sets for exactly this.
  */
-function hookCommand(repoRoot: string): string {
-  const local = join(repoRoot, 'node_modules', '.bin', 'asen');
-  return existsSync(local) ? '"$CLAUDE_PROJECT_DIR"/node_modules/.bin/asen' : 'npx agentsentinel';
+function claudeCodeCommand(repoRoot: string): string {
+  return hasLocalInstall(repoRoot)
+    ? '"$CLAUDE_PROJECT_DIR"/node_modules/.bin/asen'
+    : 'npx agentsentinel';
+}
+
+/**
+ * Git runs hooks from the root of the working tree, so a relative path is right here. It must not
+ * be CLAUDE_PROJECT_DIR, which is unset during a plain `git commit` and would expand to nothing,
+ * leaving the hook pointing at /node_modules and failing every commit.
+ */
+function gitHookCommand(repoRoot: string): string {
+  return hasLocalInstall(repoRoot) ? './node_modules/.bin/asen' : 'npx agentsentinel';
 }
 
 function writeConfig(repoRoot: string): void {
@@ -79,13 +92,37 @@ function wireClaudeCodeHook(repoRoot: string, command: string): void {
   console.log('registered the Claude Code PreToolUse hook in .claude/settings.json');
 }
 
+/**
+ * Where git will actually look for hooks. Husky and friends set core.hooksPath, and once that is
+ * set git ignores .git/hooks entirely. Writing to .git/hooks anyway would report success and then
+ * never run, which is worse than not installing at all.
+ */
+export function hooksDirectory(repoRoot: string): string {
+  let configured = '';
+  try {
+    configured = execFileSync('git', ['config', '--get', 'core.hooksPath'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    // Not set, which is the normal case.
+  }
+
+  if (!configured) {
+    return join(repoRoot, '.git', 'hooks');
+  }
+
+  return isAbsolute(configured) ? configured : join(repoRoot, configured);
+}
+
 function wirePreCommitHook(repoRoot: string, command: string): void {
-  const dir = join(repoRoot, '.git', 'hooks');
   if (!existsSync(join(repoRoot, '.git'))) {
     console.log('not a git repo, skipping the pre-commit hook');
     return;
   }
 
+  const dir = hooksDirectory(repoRoot);
   const path = join(dir, 'pre-commit');
   const script = `#!/bin/sh\n# ${HOOK_MARKER}: check newly added npm packages before they get committed\n${command} hook pre-commit\n`;
 
@@ -105,7 +142,7 @@ function wirePreCommitHook(repoRoot: string, command: string): void {
   mkdirSync(dir, { recursive: true });
   writeFileSync(path, script, 'utf8');
   chmodSync(path, 0o755);
-  console.log('installed the git pre-commit hook');
+  console.log(`installed the git pre-commit hook in ${dir}`);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
