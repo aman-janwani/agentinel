@@ -55,20 +55,40 @@ async function runHook(name: string | undefined): Promise<number> {
   return 1;
 }
 
-main(process.argv.slice(2))
+const argv = process.argv.slice(2);
+
+/**
+ * A hook must fail open. A bug in this tool should never be the reason someone cannot commit or
+ * install, so an unexpected error there is reported and swallowed.
+ *
+ * Everywhere else a crash is a real failure and has to be visible. `asen check` is meant to be
+ * usable as a CI step, and a crash that exits 0 would report a clean scan that never ran. This
+ * also stops a genuine bug (init failing on a git worktree, say) from being mistaken for a
+ * harmless skipped check.
+ */
+function failsOpen(args: string[]): boolean {
+  return args[0] === 'hook';
+}
+
+main(argv)
   .then((code) => {
     process.exitCode = code;
   })
   .catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+
     if (error instanceof ConfigError) {
-      console.error(`agentsentinel: ${error.message}`);
-      process.exitCode = 1;
+      console.error(`agentsentinel: ${message}`);
+      process.exitCode = failsOpen(argv) ? 0 : 1;
       return;
     }
-    // Anything unexpected fails open. A bug in this tool should never be the reason someone
-    // cannot commit or install.
-    console.error(
-      `agentsentinel: check skipped (${error instanceof Error ? error.message : String(error)})`,
-    );
-    process.exitCode = 0;
+
+    if (failsOpen(argv)) {
+      console.error(`agentsentinel: check skipped (${message})`);
+      process.exitCode = 0;
+      return;
+    }
+
+    console.error(`agentsentinel: ${message}`);
+    process.exitCode = 1;
   });
