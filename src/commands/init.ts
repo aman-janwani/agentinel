@@ -92,28 +92,41 @@ function wireClaudeCodeHook(repoRoot: string, command: string): void {
   console.log('registered the Claude Code PreToolUse hook in .claude/settings.json');
 }
 
-/**
- * Where git will actually look for hooks. Husky and friends set core.hooksPath, and once that is
- * set git ignores .git/hooks entirely. Writing to .git/hooks anyway would report success and then
- * never run, which is worse than not installing at all.
- */
-export function hooksDirectory(repoRoot: string): string {
-  let configured = '';
+function git(repoRoot: string, args: string[]): string | null {
   try {
-    configured = execFileSync('git', ['config', '--get', 'core.hooksPath'], {
+    return execFileSync('git', args, {
       cwd: repoRoot,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
   } catch {
-    // Not set, which is the normal case.
+    return null;
+  }
+}
+
+/**
+ * Where git will actually look for hooks. Two things make this more than `.git/hooks`:
+ *
+ * - core.hooksPath, which husky sets. Once it is set git ignores .git/hooks entirely, so writing
+ *   there would report success and never run, which is worse than not installing at all.
+ * - Worktrees and submodules, where .git is a *file* pointing elsewhere, not a directory. Assuming
+ *   otherwise means mkdir fails with ENOTDIR and no hook gets installed.
+ *
+ * Asking git rather than guessing handles both.
+ */
+export function hooksDirectory(repoRoot: string): string {
+  const configured = git(repoRoot, ['config', '--get', 'core.hooksPath']);
+  if (configured) {
+    return isAbsolute(configured) ? configured : join(repoRoot, configured);
   }
 
-  if (!configured) {
-    return join(repoRoot, '.git', 'hooks');
+  // Resolves to the real hooks directory even when .git is a file, as in a worktree.
+  const path = git(repoRoot, ['rev-parse', '--git-path', 'hooks']);
+  if (path) {
+    return isAbsolute(path) ? path : join(repoRoot, path);
   }
 
-  return isAbsolute(configured) ? configured : join(repoRoot, configured);
+  return join(repoRoot, '.git', 'hooks');
 }
 
 function wirePreCommitHook(repoRoot: string, command: string): void {
