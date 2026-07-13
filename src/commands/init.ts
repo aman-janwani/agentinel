@@ -5,7 +5,11 @@ import { repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { configPath, saveConfig } from '../config/load.js';
 import { defaultConfig } from '../config/schema.js';
 
+/** Written into the pre-commit script so we can recognise our own hook file later. */
 const HOOK_MARKER = 'agentinel';
+
+/** In the registered command whichever way the package was installed. */
+const HOOK_SUBCOMMAND = 'hook claude-code';
 
 export function runInit(): number {
   const repoRoot = repoRootOrCwd();
@@ -16,6 +20,16 @@ export function runInit(): number {
 
   console.log('\nagentinel is set up. New npm packages will be checked before they land.');
   console.log('Default mode is warn. Set "mode": "strict" in .agentinel.json to block instead.');
+
+  // The Claude Code hook runs on every Bash call, and resolving through npx each time costs about
+  // three quarters of a second. Installing it in the repo removes that. It is the difference
+  // between a tool people keep and one they rip out because the agent started feeling slow.
+  if (!hasLocalInstall(repoRoot)) {
+    console.log('\nThe hook runs on every command, and going through npx each time is slow.');
+    console.log('For faster hooks, add it to the repo and run init again:');
+    console.log('  npm install --save-dev agentinel && npx asen init');
+  }
+
   return 0;
 }
 
@@ -72,7 +86,7 @@ function wireClaudeCodeHook(repoRoot: string, command: string): void {
   const hooks = asRecord(settings.hooks) ?? {};
   const preToolUse = Array.isArray(hooks.PreToolUse) ? (hooks.PreToolUse as unknown[]) : [];
 
-  if (JSON.stringify(preToolUse).includes(HOOK_MARKER)) {
+  if (alreadyRegistered(preToolUse)) {
     console.log('Claude Code hook already registered, left alone');
     return;
   }
@@ -154,6 +168,19 @@ function wirePreCommitHook(repoRoot: string, command: string): void {
   writeFileSync(path, script, 'utf8');
   chmodSync(path, 0o755);
   console.log(`installed the git pre-commit hook in ${dir}`);
+}
+
+/**
+ * Whether our hook is already in the PreToolUse list.
+ *
+ * This looks for the subcommand, not for the package name. When the package is installed in the
+ * repo the registered command is `.../node_modules/.bin/asen hook claude-code`, which does not
+ * contain the word "agentinel" anywhere. Searching for the package name therefore missed our own
+ * hook and `init` bolted on a duplicate every time it ran, so the hook fired once per copy on
+ * every single Bash call. `hook claude-code` is in the command whichever way it was installed.
+ */
+function alreadyRegistered(preToolUse: unknown[]): boolean {
+  return JSON.stringify(preToolUse).includes(`${HOOK_SUBCOMMAND}`);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

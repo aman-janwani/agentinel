@@ -127,6 +127,23 @@ describe('runInit', () => {
     const settings = JSON.parse(readFileSync(join(repo, '.claude', 'settings.json'), 'utf8'));
     expect(settings.hooks.PreToolUse).toHaveLength(1);
   });
+
+  it('is safe to run twice when the package is installed in the repo', () => {
+    // The registered command is then `.../node_modules/.bin/asen hook claude-code`, which contains
+    // no mention of the package name. Recognising our own hook by the package name missed it, so
+    // init appended a duplicate on every run and the hook fired once per copy on every Bash call.
+    // The plain "run twice" test above never caught it, because without a local install the
+    // command is `npx agentinel`, which does contain the name.
+    mkdirSync(join(repo, 'node_modules', '.bin'), { recursive: true });
+    writeFileSync(join(repo, 'node_modules', '.bin', 'asen'), '', 'utf8');
+
+    runInit();
+    runInit();
+    runInit();
+
+    const settings = JSON.parse(readFileSync(join(repo, '.claude', 'settings.json'), 'utf8'));
+    expect(settings.hooks.PreToolUse).toHaveLength(1);
+  });
 });
 
 describe('newStagedDependencies', () => {
