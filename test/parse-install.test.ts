@@ -11,10 +11,21 @@ describe('parseInstallCommand', () => {
     expect(parseInstallCommand('npm add left-pad')).toEqual(['left-pad']);
   });
 
-  it('ignores pnpm and yarn, which are out of scope for v1', () => {
-    expect(parseInstallCommand('pnpm add left-pad')).toEqual([]);
-    expect(parseInstallCommand('yarn add left-pad')).toEqual([]);
+  it('reads pnpm and yarn installs, which resolve from the same registry', () => {
+    expect(parseInstallCommand('pnpm add left-pad')).toEqual(['left-pad']);
+    expect(parseInstallCommand('yarn add left-pad')).toEqual(['left-pad']);
+    expect(parseInstallCommand('pnpm install left-pad')).toEqual(['left-pad']);
+  });
+
+  it('ignores commands that are not an install', () => {
     expect(parseInstallCommand('npx left-pad')).toEqual([]);
+    expect(parseInstallCommand('pnpm run build')).toEqual([]);
+    expect(parseInstallCommand('yarn install')).toEqual([]);
+  });
+
+  it('resolves an aliased install to the package that actually gets installed', () => {
+    expect(parseInstallCommand('npm i myalias@npm:evil-package')).toEqual(['evil-package']);
+    expect(parseInstallCommand('npm i x@npm:@scope/pkg@1.2.3')).toEqual(['@scope/pkg']);
   });
 
   it('ignores npm subcommands that do not install a named package', () => {
