@@ -5,6 +5,14 @@
   "license": "MIT",
   "author": "Aman Janwani",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aman-janwani/agentsentinel.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aman-janwani/agentsentinel/issues"
+  },
+  "homepage": "https://github.com/aman-janwani/agentsentinel#readme",
   "bin": {
     "asen": "./dist/asen.js"
   },
