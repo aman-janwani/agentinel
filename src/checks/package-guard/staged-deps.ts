@@ -29,18 +29,24 @@ export function newStagedDependencies(repoRoot: string): string[] {
   return names;
 }
 
-/** The package.json files touched by the staged changes, as repo relative paths. */
+/**
+ * The package.json files touched by the staged changes, as repo relative paths.
+ *
+ * `-z` matters. Without it git escapes any path that is not plain ASCII and wraps it in quotes,
+ * so `packages/café/package.json` comes back as `"packages/caf\303\251/package.json"` and every
+ * later git command on that path fails. The dependency then goes unchecked, silently. NUL
+ * separated output is given raw.
+ */
 function stagedManifestPaths(repoRoot: string): string[] {
-  const output = git(repoRoot, ['diff', '--cached', '--name-only', '--diff-filter=ACMR']);
+  const output = git(repoRoot, ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR']);
   if (output === null) {
     return [];
   }
 
   return output
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line === 'package.json' || line.endsWith('/package.json'))
-    .filter((line) => !isInsideDependencies(line));
+    .split('\0')
+    .filter((path) => path === 'package.json' || path.endsWith('/package.json'))
+    .filter((path) => !isInsideDependencies(path));
 }
 
 /**
