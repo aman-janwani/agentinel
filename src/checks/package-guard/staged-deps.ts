@@ -39,7 +39,17 @@ function stagedManifestPaths(repoRoot: string): string[] {
   return output
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => line === 'package.json' || line.endsWith('/package.json'));
+    .filter((line) => line === 'package.json' || line.endsWith('/package.json'))
+    .filter((line) => !isInsideDependencies(line));
+}
+
+/**
+ * A package.json inside node_modules belongs to an installed dependency, not to this project. Some
+ * repos commit node_modules, and scanning those would warn about transitive dependencies nobody
+ * chose, and fire hundreds of requests at npm while doing it.
+ */
+function isInsideDependencies(path: string): boolean {
+  return path.split('/').includes('node_modules');
 }
 
 export function repoRootOrCwd(): string {
