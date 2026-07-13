@@ -81,6 +81,24 @@ describe('runInit', () => {
     expect(hook).toContain('hook pre-commit');
   });
 
+  it('installs a hook in a git worktree, where .git is a file and not a directory', () => {
+    const tree = mkdtempSync(join(tmpdir(), 'asen-wt-'));
+    rmSync(tree, { recursive: true, force: true });
+    git('worktree', 'add', '-q', tree, '-b', 'feature');
+    process.chdir(tree);
+
+    try {
+      // This used to throw ENOTDIR, because mkdir cannot create .git/hooks when .git is a file.
+      expect(runInit()).toBe(0);
+
+      const hooks = hooksDirectory(tree);
+      expect(readFileSync(join(hooks, 'pre-commit'), 'utf8')).toContain('hook pre-commit');
+    } finally {
+      process.chdir(repo);
+      rmSync(tree, { recursive: true, force: true });
+    }
+  });
+
   it('does not overwrite a pre-commit hook somebody else owns', () => {
     const existing = '#!/bin/sh\nnpm run lint\n';
     mkdirSync(join(repo, '.git', 'hooks'), { recursive: true });
@@ -142,6 +160,18 @@ describe('newStagedDependencies', () => {
     git('add', '-A');
 
     expect(newStagedDependencies(repo)).toEqual(['vitest']);
+  });
+
+  it('ignores a package.json inside node_modules', () => {
+    // Some repos commit node_modules. Those manifests belong to installed dependencies, and
+    // scanning them would warn about transitive packages nobody chose to add.
+    writeJson('node_modules/some-dep/package.json', {
+      name: 'some-dep',
+      dependencies: { 'transitive-thing': '^1.0.0' },
+    });
+    git('add', '-Af');
+
+    expect(newStagedDependencies(repo)).toEqual([]);
   });
 
   it('finds nothing when package.json was not touched', () => {

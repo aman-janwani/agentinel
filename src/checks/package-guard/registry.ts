@@ -32,8 +32,11 @@ export async function fetchRegistry(name: string): Promise<RegistryResult> {
   let body: unknown;
   try {
     body = await response.json();
-  } catch {
-    return { kind: 'unavailable', reason: 'registry response was not valid JSON' };
+  } catch (error) {
+    // The timeout can fire while the body is still downloading, not just while connecting. Some
+    // of these documents are large, 15MB for @typescript-eslint/parser, so this is a normal way
+    // to fail on a slow connection and must not be reported as malformed JSON.
+    return { kind: 'unavailable', reason: describeFetchError(error) };
   }
 
   const created = readCreatedDate(body);
@@ -68,8 +71,22 @@ function readCreatedDate(body: unknown): Date | null {
 }
 
 function describeFetchError(error: unknown): string {
-  if (error instanceof Error && error.name === 'TimeoutError') {
+  if (isTimeout(error)) {
     return 'registry request timed out';
   }
   return 'could not reach the npm registry';
+}
+
+/**
+ * A timeout surfaces as a TimeoutError when it fires during the request, but when it fires while
+ * the body is still streaming it arrives as an AbortError, sometimes wrapped in a TypeError.
+ */
+function isTimeout(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+    return true;
+  }
+  return isTimeout(error.cause);
 }

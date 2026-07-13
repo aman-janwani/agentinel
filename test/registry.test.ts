@@ -66,6 +66,27 @@ describe('fetchRegistry', () => {
     expect(result).toEqual({ kind: 'unavailable', reason: 'registry request timed out' });
   });
 
+  it('calls a timeout during the body download a timeout, not malformed JSON', async () => {
+    // Some of these documents are large (15MB for @typescript-eslint/parser), so the abort often
+    // fires while the body is still streaming. Reporting that as bad JSON sent us hunting for a
+    // registry bug that did not exist.
+    const aborted = new Error('The operation was aborted');
+    aborted.name = 'AbortError';
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        json: () => Promise.reject(aborted),
+      }),
+    );
+
+    const result = await fetchRegistry('@typescript-eslint/parser');
+
+    expect(result).toEqual({ kind: 'unavailable', reason: 'registry request timed out' });
+  });
+
   it('reports a missing creation date as unavailable', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ time: {} })));
 
