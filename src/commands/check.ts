@@ -2,6 +2,7 @@ import { checkPackages } from '../checks/package-guard/evaluate.js';
 import { newStagedDependencies, repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { loadConfig } from '../config/load.js';
 import { formatVerdict } from '../output/format.js';
+import { isRisky } from '../types.js';
 
 /**
  * Manual scan of newly added dependencies. Same check the hooks run, but always reports rather
@@ -21,7 +22,7 @@ export async function runCheck(names: string[]): Promise<number> {
 
   let risky = 0;
   for (const verdict of verdicts) {
-    if (verdict.kind === 'flagged' || verdict.kind === 'not-found') {
+    if (isRisky(verdict)) {
       risky += 1;
     }
     const message = formatVerdict(verdict);
@@ -32,7 +33,10 @@ export async function runCheck(names: string[]): Promise<number> {
 
   if (risky === 0) {
     console.log(`checked ${candidates.length} package(s), nothing suspicious`);
+    return 0;
   }
 
-  return 0;
+  // Non-zero so this can gate a CI job. The hooks decide separately whether to block, based on
+  // the configured mode, and they do not go through here.
+  return 1;
 }

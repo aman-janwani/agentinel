@@ -3,7 +3,7 @@ import { parseInstallCommand } from '../checks/package-guard/parse-install.js';
 import { repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { loadConfig } from '../config/load.js';
 import { denyReason, formatVerdict } from '../output/format.js';
-import type { Verdict } from '../types.js';
+import { isRisky, type Verdict } from '../types.js';
 
 /**
  * Claude Code PreToolUse hook. Reads the hook payload on stdin, and if the Bash command is an
@@ -28,7 +28,7 @@ export async function runClaudeCodeHook(): Promise<void> {
   const repoRoot = typeof payload?.cwd === 'string' ? payload.cwd : repoRootOrCwd();
   const config = loadConfig(repoRoot);
   const verdicts = await checkPackages(candidates, config);
-  const risky = verdicts.filter((v) => v.kind === 'flagged' || v.kind === 'not-found');
+  const risky = verdicts.filter(isRisky);
 
   if (config.mode === 'strict' && risky.length > 0) {
     deny(denyReason(risky));

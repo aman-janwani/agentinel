@@ -43,3 +43,11 @@ export type Verdict =
   | { kind: 'flagged'; name: string; ageDays: number; downloads: number }
   | { kind: 'not-found'; name: string }
   | { kind: 'skipped'; name: string; reason: string };
+
+/**
+ * Whether a verdict is worth stopping for in strict mode. A skipped check is not: failing to
+ * reach npm should never be the reason someone cannot commit or install.
+ */
+export function isRisky(verdict: Verdict): boolean {
+  return verdict.kind === 'flagged' || verdict.kind === 'not-found';
+}
