@@ -94,7 +94,6 @@ describe('parseInstallCommand', () => {
     expect(parseInstallCommand('npm i ../foo')).toEqual([]);
     expect(parseInstallCommand('npm i /abs/path')).toEqual([]);
     expect(parseInstallCommand('npm i file:../foo')).toEqual([]);
-    expect(parseInstallCommand('npm i UPPERCASE')).toEqual([]);
     expect(parseInstallCommand('npm i .hidden')).toEqual([]);
   });
 
@@ -115,14 +114,23 @@ describe('isValidPackageName', () => {
     expect(isValidPackageName('a')).toBe(true);
   });
 
+  it('accepts established names with capitals, which npm still installs', () => {
+    // npm refuses *new* names with capitals, but JSONStream and friends predate that rule, get
+    // tens of millions of downloads a month, and install fine. Rejecting them meant a real
+    // dependency was skipped and the user was told it was not a valid package name.
+    expect(isValidPackageName('JSONStream')).toBe(true);
+    expect(parseInstallCommand('npm i JSONStream')).toEqual(['JSONStream']);
+  });
+
   it('rejects names npm itself would reject', () => {
     expect(isValidPackageName('')).toBe(false);
-    expect(isValidPackageName('UPPER')).toBe(false);
     expect(isValidPackageName('.leading-dot')).toBe(false);
     expect(isValidPackageName('_leading-underscore')).toBe(false);
     expect(isValidPackageName('has space')).toBe(false);
     expect(isValidPackageName('has/slash')).toBe(false);
     expect(isValidPackageName('@scope/')).toBe(false);
+    expect(isValidPackageName('./local')).toBe(false);
+    expect(isValidPackageName('git+https://github.com/a/b.git')).toBe(false);
     expect(isValidPackageName('a'.repeat(215))).toBe(false);
     expect(isValidPackageName('a'.repeat(214))).toBe(true);
   });

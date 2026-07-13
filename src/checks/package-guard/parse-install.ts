@@ -23,8 +23,15 @@ const INSTALL_SUBCOMMANDS = new Set([
 /** Flags whose value is a separate token, so the value must not be read as a package name. */
 const VALUE_TAKING_FLAGS = new Set(['--registry', '--prefix', '--workspace', '-w']);
 
-/** npm's own rules: lowercase, url-safe, optional scope, no leading dot or underscore. */
-const PACKAGE_NAME = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+/**
+ * npm's naming rules: url-safe, optional scope, no leading dot or underscore, 214 characters max.
+ *
+ * Case insensitive on purpose. npm refuses *new* names with capitals, but plenty of established
+ * ones have them (`JSONStream` alone gets tens of millions of downloads a month) and they install
+ * fine. Rejecting them meant a real dependency was quietly skipped and the user was told, wrongly,
+ * that it was not a valid package name.
+ */
+const PACKAGE_NAME = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/i;
 
 export function isValidPackageName(token: string): boolean {
   if (token.length === 0 || token.length > 214) {
