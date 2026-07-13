@@ -1,0 +1,38 @@
+import { checkPackages } from '../checks/package-guard/evaluate.js';
+import { newStagedDependencies, repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
+import { loadConfig } from '../config/load.js';
+import { formatVerdict } from '../output/format.js';
+
+/**
+ * Manual scan of newly added dependencies. Same check the hooks run, but always reports rather
+ * than blocking, so it is safe to run any time.
+ */
+export async function runCheck(names: string[]): Promise<number> {
+  const repoRoot = repoRootOrCwd();
+  const candidates = names.length > 0 ? names : newStagedDependencies(repoRoot);
+
+  if (candidates.length === 0) {
+    console.log('no new packages to check');
+    return 0;
+  }
+
+  const config = loadConfig(repoRoot);
+  const verdicts = await checkPackages(candidates, config);
+
+  let risky = 0;
+  for (const verdict of verdicts) {
+    if (verdict.kind === 'flagged' || verdict.kind === 'not-found') {
+      risky += 1;
+    }
+    const message = formatVerdict(verdict);
+    if (message) {
+      console.log(message);
+    }
+  }
+
+  if (risky === 0) {
+    console.log(`checked ${candidates.length} package(s), nothing suspicious`);
+  }
+
+  return 0;
+}
