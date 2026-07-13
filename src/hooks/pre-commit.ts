@@ -23,7 +23,7 @@ export async function runPreCommitHook(): Promise<number> {
   const verdicts = await scanStagedPackages(repoRoot);
 
   for (const verdict of verdicts) {
-    const message = formatVerdict(verdict);
+    const message = formatVerdict(verdict, process.stderr);
     if (message) {
       process.stderr.write(message + '\n');
     }

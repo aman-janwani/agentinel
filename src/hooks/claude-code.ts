@@ -2,16 +2,23 @@ import { checkPackages } from '../checks/package-guard/evaluate.js';
 import { parseInstallCommand } from '../checks/package-guard/parse-install.js';
 import { repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { loadConfig } from '../config/load.js';
-import { denyReason, formatVerdict } from '../output/format.js';
+import { denyReason, plainSummary } from '../output/format.js';
 import { isRisky, type Verdict } from '../types.js';
 
 /**
  * Claude Code PreToolUse hook. Reads the hook payload on stdin, and if the Bash command is an
- * npm install, checks every package it would install.
+ * install, checks every package it would install.
  *
- * The contract, from Claude Code's hooks docs: exit 0 printing nothing means "no decision, carry
- * on as normal", and exit 0 printing a permissionDecision of "deny" blocks the tool call. We never
- * exit non-zero, since a crashing hook should not be able to wedge someone's session.
+ * How Claude Code reads a hook, from the official docs, because getting this wrong makes the whole
+ * feature silent: on exit 0 it parses **stdout** for JSON and **ignores stderr entirely**. So a
+ * warning written to stderr is thrown away. Everything the user is meant to see goes in the JSON:
+ *
+ * - `systemMessage` is shown to the user. This is how warn mode gets seen at all.
+ * - `additionalContext` is put in Claude's context, so the agent knows the package looked wrong and
+ *   can reconsider rather than carrying on blindly.
+ * - `permissionDecision: "deny"` blocks the call, and is only used in strict mode.
+ *
+ * We always exit 0. A crash in this tool must never wedge a session.
  */
 export async function runClaudeCodeHook(): Promise<void> {
   const payload = await readStdinJson();
@@ -31,43 +38,52 @@ export async function runClaudeCodeHook(): Promise<void> {
   const risky = verdicts.filter(isRisky);
 
   if (config.mode === 'strict' && risky.length > 0) {
-    deny(denyReason(risky));
-    return;
-  }
-
-  printWarnings(verdicts);
-}
-
-function printWarnings(verdicts: Verdict[]): void {
-  for (const verdict of verdicts) {
-    const message = formatVerdict(verdict);
-    if (message) {
-      // stderr, so it never gets confused with the decision JSON on stdout.
-      process.stderr.write(message + '\n');
-    }
-  }
-}
-
-function deny(reason: string): void {
-  process.stdout.write(
-    JSON.stringify({
+    emit({
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
         permissionDecision: 'deny',
-        permissionDecisionReason: reason,
+        permissionDecisionReason: denyReason(risky),
       },
-    }) + '\n',
-  );
+    });
+    return;
+  }
+
+  warn(verdicts);
+}
+
+/**
+ * Warn mode. No decision, so the install proceeds, but the user sees why it looked wrong and so
+ * does Claude.
+ */
+function warn(verdicts: Verdict[]): void {
+  const summary = plainSummary(verdicts);
+  if (summary === null) {
+    return;
+  }
+
+  emit({
+    systemMessage: summary,
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      additionalContext: summary,
+    },
+  });
+}
+
+function emit(output: unknown): void {
+  process.stdout.write(JSON.stringify(output) + '\n');
 }
 
 function extractCommand(payload: Record<string, unknown> | null): string | null {
   if (!payload || payload.tool_name !== 'Bash') {
     return null;
   }
+
   const input = payload.tool_input;
   if (typeof input !== 'object' || input === null) {
     return null;
   }
+
   const command = (input as Record<string, unknown>).command;
   return typeof command === 'string' ? command : null;
 }

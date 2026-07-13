@@ -1,5 +1,9 @@
-// The one place warnings get rendered, so the Claude Code hook, the pre-commit hook, and
-// `asen check` all say the same thing in the same words.
+// The one place warnings get worded, so the Claude Code hook, the pre-commit hook, and
+// `asen check` all say the same thing.
+//
+// Two renderings of the same verdict. formatVerdict is for a terminal, and colours itself for the
+// stream it is actually going to. plainVerdict is for the JSON payloads Claude Code reads, which
+// must never contain escape codes.
 
 import type { Verdict } from '../types.js';
 
@@ -8,20 +12,22 @@ const YELLOW = '[33m';
 const RED = '[31m';
 const DIM = '[2m';
 
-function useColor(): boolean {
-  return process.stdout.isTTY === true && !process.env.NO_COLOR;
+export type Stream = { isTTY?: boolean };
+
+/**
+ * Colour is decided against the stream the text is going to. The hooks write to stderr, so
+ * checking stdout would have been asking the wrong question.
+ */
+export function supportsColor(stream: Stream = process.stdout): boolean {
+  return stream.isTTY === true && !process.env.NO_COLOR;
 }
 
-function paint(code: string, text: string): string {
-  return useColor() ? `${code}${text}${RESET}` : text;
+function painter(color: boolean) {
+  return (code: string, text: string): string => (color ? `${code}${text}${RESET}` : text);
 }
 
-const yellow = (text: string): string => paint(YELLOW, text);
-const red = (text: string): string => paint(RED, text);
-const dim = (text: string): string => paint(DIM, text);
-
-/** Returns the text to print, or null when there is nothing worth saying. */
-export function formatVerdict(verdict: Verdict): string | null {
+/** The lines of a verdict, unstyled. Null when there is nothing worth saying. */
+function lines(verdict: Verdict): string[] | null {
   switch (verdict.kind) {
     case 'clean':
     case 'allowlisted':
@@ -29,26 +35,51 @@ export function formatVerdict(verdict: Verdict): string | null {
 
     case 'flagged':
       return [
-        yellow(`⚠ agentsentinel: ${verdict.name} looks suspicious`),
-        yellow(`  registered ${days(verdict.ageDays)} ago · ${downloads(verdict.downloads)}/month`),
-        yellow('  this pattern matches known "slopsquatting" attacks'),
-        dim(`  → run \`asen allow ${verdict.name} --reason "..."\` to silence this`),
-      ].join('\n');
+        `⚠ agentsentinel: ${verdict.name} looks suspicious`,
+        `  registered ${days(verdict.ageDays)} ago · ${downloads(verdict.downloads)}/month`,
+        '  this pattern matches known "slopsquatting" attacks',
+        `  → run \`asen allow ${verdict.name} --reason "..."\` to silence this`,
+      ];
 
     case 'not-found':
       return [
-        red(`✗ agentsentinel: ${verdict.name} does not exist on the npm registry`),
-        red('  no package by that name is published publicly, so this install will fail'),
-        red('  a name an agent invented is exactly what a slopsquatter waits to register'),
-        dim('  → check the spelling before installing anything under this name'),
-      ].join('\n');
+        `✗ agentsentinel: ${verdict.name} does not exist on the npm registry`,
+        '  no package by that name is published publicly, so this install will fail',
+        '  a name an agent invented is exactly what a slopsquatter waits to register',
+        '  → check the spelling before installing anything under this name',
+      ];
 
     case 'skipped':
       return [
-        dim(`agentsentinel: could not check ${verdict.name} (${verdict.reason})`),
-        dim('  the check did not run, and nothing was blocked'),
-      ].join('\n');
+        `agentsentinel: could not check ${verdict.name} (${verdict.reason})`,
+        '  the check did not run, and nothing was blocked',
+      ];
   }
+}
+
+/** For a terminal. Returns the text to print, or null when there is nothing worth saying. */
+export function formatVerdict(verdict: Verdict, stream: Stream = process.stdout): string | null {
+  const body = lines(verdict);
+  if (body === null) {
+    return null;
+  }
+
+  const paint = painter(supportsColor(stream));
+  const color = verdict.kind === 'not-found' ? RED : verdict.kind === 'flagged' ? YELLOW : DIM;
+
+  return body.map((line, index) => paint(index === body.length - 1 ? DIM : color, line)).join('\n');
+}
+
+/** For JSON payloads Claude Code reads. Never coloured. */
+export function plainVerdict(verdict: Verdict): string | null {
+  const body = lines(verdict);
+  return body === null ? null : body.join('\n');
+}
+
+/** Everything worth telling the user about, as one plain block. Null when there is nothing. */
+export function plainSummary(verdicts: Verdict[]): string | null {
+  const blocks = verdicts.map(plainVerdict).filter((block): block is string => block !== null);
+  return blocks.length === 0 ? null : blocks.join('\n');
 }
 
 /** Plain text reason for Claude Code's strict-mode deny payload. Goes into JSON, so no colors. */
