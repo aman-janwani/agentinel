@@ -62,14 +62,34 @@ export function needsRegistryLookup(downloads: DownloadsResult): boolean {
 }
 
 /**
- * Checks every package at once. Order of the returned verdicts matches the order the names were
- * first seen, and repeated names are only checked once.
+ * How many packages are checked at the same time. A commit that adds forty dependencies would
+ * otherwise open eighty connections to npm at once, and the way that fails is a timeout, which
+ * fails open and silently skips the check.
+ */
+const CONCURRENCY = 5;
+
+/**
+ * Checks every package. Order of the returned verdicts matches the order the names were first
+ * seen, and repeated names are only checked once.
  */
 export async function checkPackages(names: string[], config: Config): Promise<Verdict[]> {
   const unique = [...new Set(names)];
   const now = new Date();
+  const verdicts: Verdict[] = new Array(unique.length);
 
-  return Promise.all(unique.map((name) => checkOne(name, config, now)));
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < unique.length) {
+      const index = next;
+      next += 1;
+      verdicts[index] = await checkOne(unique[index]!, config, now);
+    }
+  }
+
+  const workers = Math.min(CONCURRENCY, unique.length);
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+
+  return verdicts;
 }
 
 async function checkOne(name: string, config: Config, now: Date): Promise<Verdict> {
