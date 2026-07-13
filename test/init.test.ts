@@ -162,6 +162,18 @@ describe('newStagedDependencies', () => {
     expect(newStagedDependencies(repo)).toEqual(['vitest']);
   });
 
+  it('finds a dependency under a path git would escape and quote', () => {
+    // git prints non-ASCII paths as "packages/caf\303\251/package.json" unless asked not to, and
+    // every later git command on that mangled path fails, so the dependency went unchecked.
+    writeJson('packages/café/package.json', {
+      name: 'cafe',
+      dependencies: { 'evil-pkg': '^1.0.0' },
+    });
+    git('add', '-A');
+
+    expect(newStagedDependencies(repo)).toEqual(['evil-pkg']);
+  });
+
   it('ignores a package.json inside node_modules', () => {
     // Some repos commit node_modules. Those manifests belong to installed dependencies, and
     // scanning them would warn about transitive packages nobody chose to add.

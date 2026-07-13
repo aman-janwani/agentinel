@@ -89,6 +89,23 @@ describe('checkPackages', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('does not lose every other verdict when one package blows up', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('boom')) {
+        throw new Error('something unexpected');
+      }
+      if (url.startsWith('https://api.npmjs.org/downloads/')) {
+        return new Response(JSON.stringify({ downloads: 50_000_000 }));
+      }
+      return new Response(JSON.stringify({ time: { created: new Date(0).toISOString() } }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const verdicts = await checkPackages(['react', 'boom', 'lodash'], defaultConfig());
+
+    expect(verdicts.map((verdict) => verdict.kind)).toEqual(['clean', 'skipped', 'clean']);
+  });
+
   it('escapes a scoped name so the registry sees one path segment', async () => {
     const fetchMock = stubNpm(2, 1);
 

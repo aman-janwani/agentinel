@@ -44,6 +44,25 @@ describe('loadConfig', () => {
     expect(config).toEqual({ mode: 'warn', allow: [] });
   });
 
+  it('says so when the mode is unknown, rather than quietly not blocking', () => {
+    // "block" is the obvious thing to guess, and falling back to warn in silence leaves someone
+    // believing installs are being stopped when they are not.
+    const warnings: string[] = [];
+    const config = parseConfig({ mode: 'block' }, (message) => warnings.push(message));
+
+    expect(config.mode).toBe('warn');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('block');
+    expect(warnings[0]).toContain('strict');
+  });
+
+  it('says nothing when the mode is simply absent', () => {
+    const warnings: string[] = [];
+    parseConfig({ allow: [] }, (message) => warnings.push(message));
+
+    expect(warnings).toEqual([]);
+  });
+
   it('reads a strict mode config with an allowlist', () => {
     writeFileSync(
       join(dir, '.agentsentinel.json'),

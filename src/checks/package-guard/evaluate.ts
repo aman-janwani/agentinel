@@ -82,7 +82,16 @@ export async function checkPackages(names: string[], config: Config): Promise<Ve
     while (next < unique.length) {
       const index = next;
       next += 1;
-      verdicts[index] = await checkOne(unique[index]!, config, now);
+      const name = unique[index]!;
+
+      // One package failing unexpectedly must not take the others down with it. Without this, a
+      // single bad name would lose every warning in the batch, including real ones.
+      try {
+        verdicts[index] = await checkOne(name, config, now);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        verdicts[index] = { kind: 'skipped', name, reason };
+      }
     }
   }
 
