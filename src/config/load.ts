@@ -27,11 +27,16 @@ export function loadConfig(repoRoot: string): Config {
     throw new ConfigError(`could not read ${CONFIG_FILENAME}: ${describe(error)}`);
   }
 
+  let raw: unknown;
   try {
-    return parseConfig(JSON.parse(text));
+    raw = JSON.parse(text);
   } catch {
     throw new ConfigError(`${CONFIG_FILENAME} is not valid JSON, fix it or delete it`);
   }
+
+  // Anything the config file got wrong is said out loud. Silently ignoring it is how someone ends
+  // up believing they are in strict mode when they are not.
+  return parseConfig(raw, (message) => process.stderr.write(`agentsentinel: ${message}\n`));
 }
 
 export function saveConfig(repoRoot: string, config: Config): void {

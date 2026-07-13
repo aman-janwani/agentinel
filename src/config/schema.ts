@@ -8,11 +8,16 @@ export function defaultConfig(): Config {
 
 /**
  * Turns whatever was in the config file into a Config we can trust.
- * Anything unrecognised falls back to the default rather than throwing, so a slightly
- * malformed file never breaks someone's commit. A file that isn't valid JSON at all is a
- * different case and is reported by the loader.
+ *
+ * Anything unrecognised falls back to the default rather than throwing, so a slightly malformed
+ * file never breaks someone's commit. A file that isn't valid JSON at all is a different case and
+ * is reported by the loader.
+ *
+ * `warn` is called for anything that was ignored. A mode of "block", which is a natural thing to
+ * guess, would otherwise fall back to warn in silence and leave someone believing installs were
+ * being blocked when they were not.
  */
-export function parseConfig(raw: unknown): Config {
+export function parseConfig(raw: unknown, warn: (message: string) => void = () => {}): Config {
   const config = defaultConfig();
   if (typeof raw !== 'object' || raw === null) {
     return config;
@@ -21,6 +26,11 @@ export function parseConfig(raw: unknown): Config {
   const source = raw as Record<string, unknown>;
   if (source.mode === 'strict' || source.mode === 'warn') {
     config.mode = source.mode;
+  } else if (source.mode !== undefined) {
+    warn(
+      `unknown mode ${JSON.stringify(source.mode)} in ${CONFIG_FILENAME}, ` +
+        'falling back to "warn". Valid modes are "warn" and "strict".',
+    );
   }
 
   if (Array.isArray(source.allow)) {
