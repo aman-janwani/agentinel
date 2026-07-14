@@ -4,9 +4,12 @@ coverage/
 *.log
 .DS_Store
 
-# Internal planning docs, kept local and out of the public repo
+# Internal planning docs, kept local and out of the public repo.
+# The whole docs/ directory is private, so a new doc dropped in there does not
+# accidentally get published. strategy.html in particular quotes competitors'
+# issue trackers and is not for public consumption.
 AGENTS.md
 PRD.md
 DESIGN.md
 IMPLEMENTATION.md
-docs/use-cases.html
+docs/
