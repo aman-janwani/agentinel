@@ -101,11 +101,6 @@ function isSecurityHold(doc: Record<string, unknown>, latestName: string | null)
   return typeof description === 'string' && description.toLowerCase().includes('security holding');
 }
 
-/** Publishers that are machines. A CI publisher is the healthy case, not a red flag. */
-function isMachinePublisher(name: string): boolean {
-  return /github|actions|bot|ci|npm-cli|semantic-release/i.test(name);
-}
-
 function publisherOf(version: Record<string, unknown> | null): string | null {
   const user = asRecord(version?._npmUser);
   const name = user?.name;
