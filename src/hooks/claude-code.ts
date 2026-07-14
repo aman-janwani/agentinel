@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkPackages, scanForKnownMalware } from '../checks/package-guard/evaluate.js';
+import { scan } from '../checks/package-guard/evaluate.js';
 import { packagesInLockfile } from '../checks/package-guard/lockfile.js';
 import { parseCommand } from '../checks/package-guard/parse-install.js';
 import { resolveInstall, type Resolved } from '../checks/package-guard/resolve.js';
@@ -39,18 +39,7 @@ export async function runClaudeCodeHook(): Promise<void> {
   }
 
   const config = loadConfig(repoRoot);
-
-  // The handful of packages the command actually names get the full check over the network: age,
-  // downloads, publisher drift, everything. The rest of the tree, which for `npm install express` is
-  // 67 packages, is checked against the local malware list instead. Checking all 67 over the network
-  // took nearly 18 seconds, which is far too slow for something that runs on every install, and a
-  // tool people uninstall protects nobody. The tree scan is instant, needs no network, and is
-  // version exact, which is the only way to tell chalk from the one version of chalk that was
-  // compromised.
-  const namedVerdicts = await checkPackages(named, config, 'thorough');
-  const treeVerdicts = scanForKnownMalware(tree, config);
-
-  const verdicts = [...namedVerdicts, ...treeVerdicts];
+  const verdicts = await scan(named, tree, config);
   const risky = verdicts.filter(isRisky);
 
   if (config.mode === 'strict' && risky.length > 0) {

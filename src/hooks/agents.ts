@@ -1,4 +1,4 @@
-import { checkPackages, scanForKnownMalware } from '../checks/package-guard/evaluate.js';
+import { scan } from '../checks/package-guard/evaluate.js';
 import { repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { loadConfig } from '../config/load.js';
 import { denyReason, plainSummary } from '../output/format.js';
@@ -137,10 +137,7 @@ async function check(kind: AgentKind): Promise<void> {
   // The same split the Claude Code hook makes: the handful of packages the command names get the
   // full network check, and the rest of the resolved tree is matched against the local malware list,
   // which is instant and version exact.
-  const namedVerdicts = await checkPackages(named, config, 'thorough');
-  const treeVerdicts = scanForKnownMalware(tree, config);
-
-  const verdicts: Verdict[] = [...namedVerdicts, ...treeVerdicts];
+  const verdicts: Verdict[] = await scan(named, tree, config);
   const risky = verdicts.filter(isRisky);
 
   if (config.mode === 'strict' && risky.length > 0) {

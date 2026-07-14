@@ -1,21 +1,14 @@
 # agentinel
 
-Catches AI hallucinated npm packages before your coding agent installs them.
+Guards your AI coding agent when it installs npm packages.
 
-LLMs suggest package names that don't exist roughly one in five times. Attackers noticed, and
-they pre-register the names models commonly hallucinate, then fill them with malware. The attack
-has a name now: slopsquatting. When your agent says "I'll install `fast-json-validator-pro`", you
-have no way to tell, in that moment, whether it's a real library or a trap someone registered two
-weeks ago.
+Coding agents install dependencies on your behalf, often without you looking closely. Sometimes
+they install a package that was registered last week with no history, sometimes one whose name they
+invented, and sometimes a legitimate package that pulls in a compromised one three levels deep.
+agentinel checks every package an install would bring in, at the moment the agent reaches for it,
+and tells the agent why something looks wrong so it can back off.
 
-`agentinel` checks two things before the install lands:
-
-- **Age**, when the package was first published to npm
-- **Popularity**, how many downloads it got in the last month
-
-If a package is both **under 30 days old** and **under 1,000 monthly downloads**, you get a
-warning with the real numbers. Both signals have to trip. A brand new release from an established
-maintainer doesn't get flagged, and neither does an old, obscure but legitimate package.
+Every other tool in this space guards your terminal. agentinel guards your agent.
 
 ## Install
 
@@ -23,82 +16,81 @@ maintainer doesn't get flagged, and neither does an old, obscure but legitimate 
 npm install --save-dev agentinel && npx asen init
 ```
 
-That writes a config file, installs a git pre-commit hook, and registers a Claude Code hook. No
-account, no server, no configuration required.
+That sets up a hook for whichever coding agents you use, plus a git pre-commit hook. No account, no
+server, no configuration.
 
-You can also try it without installing anything, with `npx agentinel init`. It works, but the
-Claude Code hook then resolves through npx on every command you run, which adds close to a second
-each time. Installing it in the repo is worth it once you decide to keep it.
+You can also try it with `npx agentinel init` and nothing installed, though the agent hook then
+resolves through npx on every command, which is slower.
 
-## What it looks like
+## What it checks
 
-```
-$ Claude is installing: fast-json-validator-pro
-⚠ agentinel: fast-json-validator-pro looks suspicious
-  registered 9 days ago · 4 downloads/month
-  this pattern matches known "slopsquatting" attacks
-  → run `asen allow fast-json-validator-pro --reason "..."` to silence this
-```
+Every package an install would actually bring in, not just the one you named. `npm install express`
+looks like one package and installs 67, and most real npm malware hides in the transitive ones.
 
-Warn is the default. It tells you and gets out of the way, and it tells Claude too, so the agent
-knows the package looked wrong and can suggest an established alternative instead of pressing on.
+- **Known malware.** A bundled list of 216,000 packages confirmed malicious (from the open OSV
+  database), matched on your machine. Nothing about what you install is ever sent anywhere.
+- **npm takedowns.** Packages npm itself has pulled for security.
+- **New and unused.** Registered in the last 30 days with under 1,000 monthly downloads, the classic
+  slopsquat shape.
+- **No track record.** No repository, one version ever, barely downloaded.
+- **Sudden bloat.** A patch release that triples the amount of code, paired with a change of
+  publisher: the fingerprint of a hijacked maintainer account.
 
-If you want it to actually stop the install, set `"mode": "strict"` in `.agentinel.json`. Claude
-Code then treats a flagged package as a denied permission and looks for another approach.
+Names that do not exist on npm at all are called out too, since a name an agent invented is exactly
+what a slopsquatter waits to register.
 
-## Two hooks, so it works either way
+Against the 100 most depended-on packages on npm it flags **zero** of them, while catching every
+package in its known-bad test set. A security tool that cries wolf gets uninstalled the same day, so
+that number is the one that matters.
 
-- **Claude Code hook** (`PreToolUse`): catches the install command before it runs. Reads `npm`,
-  `pnpm`, and `yarn` installs, since all three resolve from the same registry.
-- **Git pre-commit hook**: diffs every `package.json` and catches new dependencies on commit,
-  including workspace packages in a monorepo. Doesn't care which agent, editor, or human added
-  them. If your repo uses husky, the hook is installed where husky points git.
+## Which agents
+
+CLI agents, all through their native pre-execution hook: **Claude Code, Codex CLI, Copilot CLI, and
+Gemini CLI**. `asen init` wires up whichever of them it finds on your machine. When it blocks
+something in strict mode, the agent is told why in a way it understands, so it looks for a safe
+alternative instead of retrying.
+
+For installs that never go through an agent, a person typing `npm i` by hand or a script shelling
+out, there is an opt-in shim (`asen init --shim`) that checks those too. And the git pre-commit hook
+scans the staged lockfile, so a poisoned dependency cannot slip in through a commit either.
+
+## Warn or block
+
+Warn is the default: it tells you and the agent, and gets out of the way. Set `"mode": "strict"` in
+`.agentinel.json` to turn a finding into a block.
 
 ## Commands
 
 ```sh
-npx agentinel init                   # set up hooks + config in this repo
-asen check                               # check staged dependencies now
+npx asen init                            # set up hooks in this repo
+npx asen init --shim                     # also guard installs you type by hand
+asen check                               # check the staged dependencies now
 asen check some-package                  # check a specific package
 asen allow <pkg> --reason "why"          # allowlist a package, with a logged reason
+asen unshim                              # remove the shim
 ```
 
-`asen check` exits non-zero when something is flagged, so it also works as a CI step.
+`asen check` exits non-zero when something is flagged, so it works as a CI step.
 
-The allowlist lives in `.agentinel.json` and gets committed, so the reason is visible to
-everyone on the repo. It's a trail, not a silent bypass.
+The allowlist lives in `.agentinel.json` and is committed, so the reason a package was trusted is
+visible to everyone on the repo. It is a trail, not a silent bypass.
 
-## This has already happened
+## How it stays out of your way
 
-- **`react-codeshift`**: a name conflating two real tools (`jscodeshift` and `react-codemod`),
-  hallucinated into a batch of AI generated agent skill files that nobody reviewed. By the time a
-  researcher defensively claimed the name in January 2026, it had spread to 237 repositories and
-  was still getting daily install attempts from autonomous agents.
-- **`unused-imports`**: what models suggest instead of the real
-  `eslint-plugin-unused-imports`. Someone registered the hallucinated name with a malicious
-  payload. It was still pulling roughly 233 weekly downloads even after npm marked it security
-  held.
-
-## Design
-
-Everything runs on your machine. The only network calls are to the public npm registry and the
-public npm downloads API, both free and unauthenticated. There's no server, no account, no
-telemetry, and no LLM call anywhere in the tool. It costs nothing to run and it can't phone home,
-because there's nowhere for it to phone.
-
-If the npm API is unreachable, the check is skipped with a note. It fails open. A network hiccup
-should never be the reason you can't commit.
+agentinel does no network interception. It runs no proxy, changes no TLS settings, and injects no
+environment variables. So it cannot break `npm test`, a private registry, or a Rust or Go build, the
+way a man-in-the-middle proxy can. The malware list is matched locally and works offline. If the npm
+API is unreachable, a check is skipped with a note rather than blocking your work.
 
 ## Scope
 
-The npm registry only, which covers npm, pnpm, and yarn since they all install from it. No PyPI,
-no Cargo. This is deliberately one narrow check that works, not a general security suite. It isn't
-a CVE scanner, that's what Snyk and Socket are for.
+The npm registry only, which covers npm, pnpm, yarn, and bun, since they all install from it. Not a
+CVE scanner, that is what `npm audit`, Snyk, and Dependabot are for. This finds malicious packages,
+not vulnerable-but-legitimate ones.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and pull requests are welcome, but read the scope
-notes there first so you don't spend time on something that won't get merged.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

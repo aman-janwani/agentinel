@@ -250,6 +250,18 @@ async function checkOne(name: string, config: Config, now: Date, depth: Depth): 
  * deciding whether to trust a package somebody chose to install. A transitive dependency was not
  * chosen by anybody, and the question that matters for it is simply: is this known to be malicious.
  */
+/**
+ * The one check every entry point runs. A handful of named packages get the full network check;
+ * the rest of the resolved tree is matched against the local malware list, which is instant and
+ * version exact. The agent hooks, `asen check`, and the pre-commit hook all go through here, so a
+ * package treated one way when an agent installs it is treated the same way at commit time.
+ */
+export async function scan(named: string[], tree: Resolved[], config: Config): Promise<Verdict[]> {
+  const namedVerdicts = await checkPackages(named, config, 'thorough');
+  const treeVerdicts = scanForKnownMalware(tree, config);
+  return [...namedVerdicts, ...treeVerdicts];
+}
+
 export function scanForKnownMalware(tree: Resolved[], config: Config): Verdict[] {
   const verdicts: Verdict[] = [];
 

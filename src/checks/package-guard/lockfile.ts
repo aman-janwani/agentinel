@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Resolved } from './resolve.js';
@@ -17,9 +18,43 @@ export function packagesInLockfile(repoRoot: string): Resolved[] {
     return [];
   }
 
+  return packagesInLockText(readFileOrNull(path));
+}
+
+/**
+ * The packages in the *staged* lockfile, the one about to be committed.
+ *
+ * This is what gives the pre-commit hook transitive coverage. Someone can add a poisoned dependency
+ * whose entry only ever appears in package-lock.json, and the package.json diff would not show it.
+ * Reading the staged lockfile directly means the whole resolved tree that is about to land is
+ * checked, not just the names that changed in package.json.
+ */
+export function stagedLockfilePackages(repoRoot: string): Resolved[] {
+  let text: string | null = null;
+  try {
+    // ":path" is git's syntax for the staged (index) copy of a file.
+    text = execFileSync('git', ['show', ':package-lock.json'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch {
+    // No staged lockfile, which is normal for a commit that does not touch dependencies.
+    return [];
+  }
+
+  return packagesInLockText(text);
+}
+
+function packagesInLockText(text: string | null): Resolved[] {
+  if (text === null) {
+    return [];
+  }
+
   let lock: unknown;
   try {
-    lock = JSON.parse(readFileSync(path, 'utf8'));
+    lock = JSON.parse(text);
   } catch {
     return [];
   }
@@ -33,6 +68,14 @@ export function packagesInLockfile(repoRoot: string): Resolved[] {
   collectFromDependencies(lock as Record<string, unknown>, found);
 
   return [...found.values()];
+}
+
+function readFileOrNull(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
 }
 
 /**
