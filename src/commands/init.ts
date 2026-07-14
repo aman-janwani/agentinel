@@ -1,9 +1,11 @@
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { configPath, saveConfig } from '../config/load.js';
 import { defaultConfig } from '../config/schema.js';
+import { installShim, type ShimTarget } from './shim.js';
 
 /** Written into the pre-commit script so we can recognise our own hook file later. */
 const HOOK_MARKER = 'agentinel';
@@ -11,12 +13,24 @@ const HOOK_MARKER = 'agentinel';
 /** In the registered command whichever way the package was installed. */
 const HOOK_SUBCOMMAND = 'hook claude-code';
 
-export function runInit(): number {
+export interface InitOptions {
+  /** Also put the PATH shims in place, so installs typed by hand are checked too. */
+  shim?: boolean;
+  /** Where the shim writes. Only set by tests, so they never touch a real home directory. */
+  shimTarget?: ShimTarget;
+}
+
+export function runInit(options: InitOptions = {}): number {
   const repoRoot = repoRootOrCwd();
 
   writeConfig(repoRoot);
   wireClaudeCodeHook(repoRoot, claudeCodeCommand(repoRoot));
+  wireOtherAgents(repoRoot, agentHookCommand(repoRoot));
   wirePreCommitHook(repoRoot, gitHookCommand(repoRoot));
+
+  if (options.shim) {
+    installShim(repoRoot, options.shimTarget);
+  }
 
   console.log('\nagentinel is set up. New npm packages will be checked before they land.');
   console.log('Default mode is warn. Set "mode": "strict" in .agentinel.json to block instead.');
@@ -102,6 +116,159 @@ function wireClaudeCodeHook(repoRoot: string, command: string): void {
   mkdirSync(dir, { recursive: true });
   writeFileSync(path, JSON.stringify(settings, null, 2) + '\n', 'utf8');
   console.log('registered the Claude Code PreToolUse hook in .claude/settings.json');
+}
+
+/**
+ * Codex, Copilot and Gemini all run the hook through a shell, and none of them promise the working
+ * directory is the repo root, so the path is resolved from the git root rather than assumed. Claude
+ * Code has CLAUDE_PROJECT_DIR for this, the others have nothing equivalent.
+ */
+function agentHookCommand(repoRoot: string): string {
+  return hasLocalInstall(repoRoot)
+    ? '"$(git rev-parse --show-toplevel)"/node_modules/.bin/asen'
+    : 'npx agentinel';
+}
+
+/**
+ * Wire up whichever of the other agents this machine actually uses.
+ *
+ * Only agents we can see evidence of, either a config directory in the repo or one in the home
+ * directory. Writing a .codex, a .gemini and a .github/hooks into every repo that runs init would
+ * be litter, and litter in someone's repo is how a tool gets removed.
+ */
+function wireOtherAgents(repoRoot: string, command: string): void {
+  if (uses(repoRoot, '.codex')) {
+    wireCodexHook(repoRoot, command);
+  }
+  if (uses(repoRoot, '.copilot') || existsSync(join(repoRoot, '.github', 'hooks'))) {
+    wireCopilotHook(repoRoot, command);
+  }
+  if (uses(repoRoot, '.gemini')) {
+    wireGeminiHook(repoRoot, command);
+  }
+}
+
+function uses(repoRoot: string, dir: string): boolean {
+  return existsSync(join(repoRoot, dir)) || existsSync(join(homedir(), dir));
+}
+
+/**
+ * Codex: .codex/hooks.json, the same PascalCase PreToolUse shape Claude Code uses.
+ * https://learn.chatgpt.com/docs/hooks
+ */
+function wireCodexHook(repoRoot: string, command: string): void {
+  const path = join(repoRoot, '.codex', 'hooks.json');
+  const file = readJson(path);
+  if (file === null) {
+    console.log('.codex/hooks.json is not valid JSON, skipping the Codex hook');
+    return;
+  }
+
+  const hooks = asRecord(file.hooks) ?? {};
+  const preToolUse = Array.isArray(hooks.PreToolUse) ? (hooks.PreToolUse as unknown[]) : [];
+
+  if (registers(preToolUse, 'codex')) {
+    console.log('Codex hook already registered, left alone');
+    return;
+  }
+
+  preToolUse.push({
+    matcher: 'Bash',
+    hooks: [{ type: 'command', command: `${command} hook codex` }],
+  });
+  hooks.PreToolUse = preToolUse;
+  file.hooks = hooks;
+
+  writeJson(path, file);
+  console.log('registered the Codex PreToolUse hook in .codex/hooks.json');
+}
+
+/**
+ * Copilot: its own file under .github/hooks, which is auto-discovered. camelCase preToolUse, and
+ * the shell command goes in `bash`. https://docs.github.com/en/copilot/reference/hooks-configuration
+ */
+function wireCopilotHook(repoRoot: string, command: string): void {
+  const path = join(repoRoot, '.github', 'hooks', 'agentinel.json');
+  const file = readJson(path);
+  if (file === null) {
+    console.log('.github/hooks/agentinel.json is not valid JSON, skipping the Copilot hook');
+    return;
+  }
+
+  const hooks = asRecord(file.hooks) ?? {};
+  const preToolUse = Array.isArray(hooks.preToolUse) ? (hooks.preToolUse as unknown[]) : [];
+
+  if (registers(preToolUse, 'copilot')) {
+    console.log('Copilot hook already registered, left alone');
+    return;
+  }
+
+  preToolUse.push({ type: 'command', matcher: 'bash', bash: `${command} hook copilot` });
+  hooks.preToolUse = preToolUse;
+  file.version = 1;
+  file.hooks = hooks;
+
+  writeJson(path, file);
+  console.log('registered the Copilot preToolUse hook in .github/hooks/agentinel.json');
+}
+
+/**
+ * Gemini: settings.json, event BeforeTool, and the shell tool is called run_shell_command.
+ * https://geminicli.com/docs/hooks/reference/
+ */
+function wireGeminiHook(repoRoot: string, command: string): void {
+  const path = join(repoRoot, '.gemini', 'settings.json');
+  const file = readJson(path);
+  if (file === null) {
+    console.log('.gemini/settings.json is not valid JSON, skipping the Gemini hook');
+    return;
+  }
+
+  const hooks = asRecord(file.hooks) ?? {};
+  const beforeTool = Array.isArray(hooks.BeforeTool) ? (hooks.BeforeTool as unknown[]) : [];
+
+  if (registers(beforeTool, 'gemini')) {
+    console.log('Gemini hook already registered, left alone');
+    return;
+  }
+
+  beforeTool.push({
+    matcher: 'run_shell_command',
+    hooks: [{ type: 'command', command: `${command} hook gemini` }],
+  });
+  hooks.BeforeTool = beforeTool;
+  file.hooks = hooks;
+
+  writeJson(path, file);
+  console.log('registered the Gemini BeforeTool hook in .gemini/settings.json');
+}
+
+/** Reads a JSON object, treating a missing file as empty. Null means the file is there and broken. */
+function readJson(path: string): Record<string, unknown> | null {
+  if (!existsSync(path)) {
+    return {};
+  }
+
+  try {
+    return asRecord(JSON.parse(readFileSync(path, 'utf8'))) ?? {};
+  } catch {
+    return null;
+  }
+}
+
+function writeJson(path: string, value: unknown): void {
+  mkdirSync(join(path, '..'), { recursive: true });
+  writeFileSync(path, JSON.stringify(value, null, 2) + '\n', 'utf8');
+}
+
+/**
+ * Whether our hook for this agent is already in the list. Matched on the subcommand, not the
+ * package name: when the package is installed in the repo the registered command points straight at
+ * node_modules/.bin/asen and the word "agentinel" appears nowhere in it, so matching on the name
+ * would miss our own entry and init would bolt on a duplicate every time it ran.
+ */
+function registers(entries: unknown[], kind: string): boolean {
+  return JSON.stringify(entries).includes(`hook ${kind}`);
 }
 
 function git(repoRoot: string, args: string[]): string | null {

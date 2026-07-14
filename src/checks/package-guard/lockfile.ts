@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Resolved } from './resolve.js';
 
 /**
  * Every package a lockfile would install, including transitive ones.
@@ -10,7 +11,7 @@ import { join } from 'node:path';
  * the truth is written down, and it is the fully resolved tree, so reading it gives complete
  * transitive coverage for free.
  */
-export function packagesInLockfile(repoRoot: string): string[] {
+export function packagesInLockfile(repoRoot: string): Resolved[] {
   const path = join(repoRoot, 'package-lock.json');
   if (!existsSync(path)) {
     return [];
@@ -27,24 +28,25 @@ export function packagesInLockfile(repoRoot: string): string[] {
     return [];
   }
 
-  const names = new Set<string>();
-  collectFromPackages(lock as Record<string, unknown>, names);
-  collectFromDependencies(lock as Record<string, unknown>, names);
+  const found = new Map<string, Resolved>();
+  collectFromPackages(lock as Record<string, unknown>, found);
+  collectFromDependencies(lock as Record<string, unknown>, found);
 
-  return [...names];
+  return [...found.values()];
 }
 
 /**
  * Lockfile v2 and v3. Keys look like "node_modules/foo" or "node_modules/a/node_modules/b", and
  * the package name is whatever follows the last "node_modules/".
  */
-function collectFromPackages(lock: Record<string, unknown>, names: Set<string>): void {
+function collectFromPackages(lock: Record<string, unknown>, found: Map<string, Resolved>): void {
   const packages = lock.packages;
   if (typeof packages !== 'object' || packages === null) {
     return;
   }
+  const entries = packages as Record<string, unknown>;
 
-  for (const key of Object.keys(packages)) {
+  for (const key of Object.keys(entries)) {
     // The empty key is the project itself, and a link points at a local workspace, not the registry.
     if (key === '') continue;
 
@@ -52,12 +54,22 @@ function collectFromPackages(lock: Record<string, unknown>, names: Set<string>):
     if (marker === -1) continue;
 
     const name = key.slice(marker + 'node_modules/'.length);
-    if (name) names.add(name);
+    if (!name) continue;
+
+    const entry = entries[key];
+    const version =
+      typeof entry === 'object' && entry !== null
+        ? String((entry as Record<string, unknown>).version ?? '')
+        : '';
+    found.set(name, { name, version });
   }
 }
 
 /** Lockfile v1, which nests dependencies instead of flattening them. */
-function collectFromDependencies(lock: Record<string, unknown>, names: Set<string>): void {
+function collectFromDependencies(
+  lock: Record<string, unknown>,
+  found: Map<string, Resolved>,
+): void {
   const walk = (node: unknown): void => {
     if (typeof node !== 'object' || node === null) return;
 
@@ -65,7 +77,11 @@ function collectFromDependencies(lock: Record<string, unknown>, names: Set<strin
     if (typeof deps !== 'object' || deps === null) return;
 
     for (const [name, child] of Object.entries(deps as Record<string, unknown>)) {
-      names.add(name);
+      const version =
+        typeof child === 'object' && child !== null
+          ? String((child as Record<string, unknown>).version ?? '')
+          : '';
+      found.set(name, { name, version });
       walk(child);
     }
   };

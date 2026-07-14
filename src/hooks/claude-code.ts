@@ -1,8 +1,9 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkPackages } from '../checks/package-guard/evaluate.js';
+import { checkPackages, scanForKnownMalware } from '../checks/package-guard/evaluate.js';
 import { packagesInLockfile } from '../checks/package-guard/lockfile.js';
 import { parseCommand } from '../checks/package-guard/parse-install.js';
+import { resolveInstall, type Resolved } from '../checks/package-guard/resolve.js';
 import { repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { loadConfig } from '../config/load.js';
 import { denyReason, plainSummary } from '../output/format.js';
@@ -32,23 +33,24 @@ export async function runClaudeCodeHook(): Promise<void> {
   }
 
   const repoRoot = typeof payload?.cwd === 'string' ? payload.cwd : repoRootOrCwd();
-  const { named, transitive } = candidatesFor(command, repoRoot);
-  if (named.length === 0 && transitive.length === 0) {
+  const { named, tree } = candidatesFor(command, repoRoot);
+  if (named.length === 0 && tree.length === 0) {
     return;
   }
 
   const config = loadConfig(repoRoot);
 
-  // Packages the command actually names get the full check, including publisher drift, because
-  // there are only ever a handful of them. The lockfile can hold hundreds, and fetching every one
-  // of their version histories (react's alone is 6.6MB) would be slow enough to time out, which
-  // fails open and means the check silently does not happen at all.
-  const [namedVerdicts, transitiveVerdicts] = await Promise.all([
-    checkPackages(named, config, 'thorough'),
-    checkPackages(transitive, config, 'quick'),
-  ]);
+  // The handful of packages the command actually names get the full check over the network: age,
+  // downloads, publisher drift, everything. The rest of the tree, which for `npm install express` is
+  // 67 packages, is checked against the local malware list instead. Checking all 67 over the network
+  // took nearly 18 seconds, which is far too slow for something that runs on every install, and a
+  // tool people uninstall protects nobody. The tree scan is instant, needs no network, and is
+  // version exact, which is the only way to tell chalk from the one version of chalk that was
+  // compromised.
+  const namedVerdicts = await checkPackages(named, config, 'thorough');
+  const treeVerdicts = scanForKnownMalware(tree, config);
 
-  const verdicts = [...namedVerdicts, ...transitiveVerdicts];
+  const verdicts = [...namedVerdicts, ...treeVerdicts];
   const risky = verdicts.filter(isRisky);
 
   if (config.mode === 'strict' && risky.length > 0) {
@@ -80,7 +82,7 @@ export async function runClaudeCodeHook(): Promise<void> {
 export function candidatesFor(
   command: string,
   repoRoot: string,
-): { named: string[]; transitive: string[] } {
+): { named: string[]; tree: Resolved[] } {
   const intent = parseCommand(command);
 
   // A locally installed tool (`npx tsc`, `npx vitest`) is not fetched from the registry at all, so
@@ -89,11 +91,21 @@ export function candidatesFor(
   const executes = intent.executes.filter((name) => !isLocalTool(repoRoot, name));
 
   const named = [...new Set([...intent.installs, ...executes])];
-  const transitive = intent.lockfile
-    ? packagesInLockfile(repoRoot).filter((name) => !named.includes(name))
-    : [];
 
-  return { named, transitive };
+  // What the install would ACTUALLY bring in. `npm install express` names one package and installs
+  // 67, and most real npm malware hides in the transitive ones. Checking only the name that was
+  // typed means checking 1 package out of 67 and calling the result safe.
+  const resolved = intent.installs.length > 0 ? resolveInstall(repoRoot, intent.installs) : [];
+  const fromLockfile = intent.lockfile ? packagesInLockfile(repoRoot) : [];
+
+  const tree = new Map<string, Resolved>();
+  for (const entry of [...resolved, ...fromLockfile]) {
+    if (!named.includes(entry.name)) {
+      tree.set(entry.name, entry);
+    }
+  }
+
+  return { named, tree: [...tree.values()] };
 }
 
 function isLocalTool(repoRoot: string, name: string): boolean {

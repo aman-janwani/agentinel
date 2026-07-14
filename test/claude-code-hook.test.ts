@@ -1,6 +1,8 @@
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { packagesInLockfile } from '../src/checks/package-guard/lockfile.js';
+import { setKnownMalwareForTests } from '../src/checks/package-guard/malware.js';
 import { runClaudeCodeHook } from '../src/hooks/claude-code.js';
 
 /**
@@ -85,16 +87,33 @@ describe('the Claude Code hook in warn mode', () => {
     expect(await runHook('npm run build', process.cwd())).toBeNull();
   });
 
-  it('audits the lockfile on a bare install, instead of ignoring it', async () => {
+  it('scans the whole lockfile for known malware on a bare install', async () => {
     // A bare `npm install` or an `npm ci` names no package, so we used to say nothing at all. That
-    // is exactly the fresh-clone-of-a-poisoned-repo case: the lockfile already holds the malware and
-    // the commit happened long ago. The lockfile is the only place the truth is written down.
-    stubNpm(4, 2);
+    // is exactly the fresh-clone-of-a-poisoned-repo case: the lockfile already holds the malware
+    // and the commit happened long ago.
+    //
+    // The tree is checked against the local malware list rather than over the network. Checking a
+    // 67 package tree over the network took nearly 18 seconds, and a tool people uninstall because
+    // it is slow protects nobody. The list is version exact, so it still tells chalk from the one
+    // version of chalk that was compromised.
+    stubNpm(50_000_000, 3000);
+    const lockfilePackages = packagesInLockfile(process.cwd());
+    expect(lockfilePackages.length).toBeGreaterThan(0);
+
+    const victim = lockfilePackages[0]!;
+    setKnownMalwareForTests({ [victim.name]: [victim.version] });
 
     const output = await runHook('npm install', process.cwd());
 
-    expect(output).not.toBeNull();
-    expect(String(output?.systemMessage)).toContain('SUSPICIOUS PACKAGE');
+    expect(String(output?.systemMessage)).toContain('MALICIOUS PACKAGE');
+    expect(String(output?.systemMessage)).toContain(victim.name);
+  });
+
+  it('does not flag a lockfile whose packages are all fine', async () => {
+    stubNpm(50_000_000, 3000);
+    setKnownMalwareForTests({});
+
+    expect(await runHook('npm install', process.cwd())).toBeNull();
   });
 
   it('says nothing when there is no lockfile to audit', async () => {

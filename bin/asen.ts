@@ -2,15 +2,18 @@ import { positionals, readFlag } from '../src/cli/args.js';
 import { runAllow } from '../src/commands/allow.js';
 import { runCheck } from '../src/commands/check.js';
 import { runInit } from '../src/commands/init.js';
+import { removeShim, runCheckCommand } from '../src/commands/shim.js';
+import { isAgentKind, runAgentHook } from '../src/hooks/agents.js';
 import { runClaudeCodeHook } from '../src/hooks/claude-code.js';
 import { runPreCommitHook } from '../src/hooks/pre-commit.js';
 import { ConfigError } from '../src/config/load.js';
 
 const USAGE = `asen, a guard for AI coding agent workflows
 
-  asen init                          set up the hooks and config in this repo
+  asen init [--shim]                 set up the hooks and config in this repo
   asen check [pkg...]                check staged dependencies, or specific packages
   asen allow <pkg> --reason "..."    allowlist a flagged package, with a logged reason
+  asen unshim                        remove the PATH shims that --shim installed
 `;
 
 async function main(argv: string[]): Promise<number> {
@@ -18,7 +21,7 @@ async function main(argv: string[]): Promise<number> {
 
   switch (command) {
     case 'init':
-      return runInit();
+      return runInit({ shim: rest.includes('--shim') });
 
     case 'check':
       return runCheck(positionals(rest));
@@ -26,9 +29,16 @@ async function main(argv: string[]): Promise<number> {
     case 'allow':
       return runAllow(positionals(rest)[0], readFlag(rest, '--reason'));
 
+    case 'unshim':
+      return removeShim();
+
     // Not documented in the usage text on purpose. These are what the installed hooks call.
     case 'hook':
       return runHook(rest[0]);
+
+    // What the PATH shims call, with the whole command line as one argument.
+    case 'check-command':
+      return runCheckCommand(rest[0]);
 
     case '--help':
     case '-h':
@@ -43,23 +53,33 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
+/**
+ * Every agent hook exits 0, including the unknown-name case. Copilot fails closed: a non-zero exit
+ * from a preToolUse hook denies the tool call, so a typo in someone's hook config would leave them
+ * unable to run any command at all. A hook that cannot do its job stays out of the way.
+ */
 async function runHook(name: string | undefined): Promise<number> {
   if (name === 'claude-code') {
     await runClaudeCodeHook();
+    return 0;
+  }
+  if (name && isAgentKind(name)) {
+    await runAgentHook(name);
     return 0;
   }
   if (name === 'pre-commit') {
     return runPreCommitHook();
   }
   console.error(`unknown hook: ${name}`);
-  return 1;
+  return 0;
 }
 
 const argv = process.argv.slice(2);
 
 /**
  * A hook must fail open. A bug in this tool should never be the reason someone cannot commit or
- * install, so an unexpected error there is reported and swallowed.
+ * install, so an unexpected error there is reported and swallowed. `check-command` is the same
+ * thing for the PATH shims: it sits in front of every `npm` the user runs.
  *
  * Everywhere else a crash is a real failure and has to be visible. `asen check` is meant to be
  * usable as a CI step, and a crash that exits 0 would report a clean scan that never ran. This
@@ -67,7 +87,7 @@ const argv = process.argv.slice(2);
  * harmless skipped check.
  */
 function failsOpen(args: string[]): boolean {
-  return args[0] === 'hook';
+  return args[0] === 'hook' || args[0] === 'check-command';
 }
 
 main(argv)

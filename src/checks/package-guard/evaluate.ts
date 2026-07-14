@@ -5,6 +5,7 @@ import { fetchDownloads } from './downloads.js';
 import { isKnownMalware } from './malware.js';
 import { isValidPackageName } from './parse-install.js';
 import { fetchRegistry } from './registry.js';
+import type { Resolved } from './resolve.js';
 
 const MS_PER_DAY = 86400000;
 
@@ -231,4 +232,35 @@ async function checkOne(name: string, config: Config, now: Date, depth: Depth): 
 
   const registry = await fetchRegistry(name);
   return evaluate(name, registry, downloads, config, now);
+}
+
+/**
+ * Scans a resolved dependency tree against the local malware list, and nothing else.
+ *
+ * `npm install express` brings in 67 packages. Checking all of them over the network took nearly 18
+ * seconds, which is far too slow for something that runs on every install: people would rip the tool
+ * out, and a tool that has been uninstalled protects nobody.
+ *
+ * But the resolver already told us the exact version of every package in the tree, and the malware
+ * list is on disk. So the whole tree can be checked instantly, offline, and *more* precisely than a
+ * network check would manage: it is version exact, which is the only way to tell chalk (fine) from
+ * the one version of chalk that was compromised.
+ *
+ * The heuristics (age, downloads, no track record) are not applied here on purpose. They are for
+ * deciding whether to trust a package somebody chose to install. A transitive dependency was not
+ * chosen by anybody, and the question that matters for it is simply: is this known to be malicious.
+ */
+export function scanForKnownMalware(tree: Resolved[], config: Config): Verdict[] {
+  const verdicts: Verdict[] = [];
+
+  for (const { name, version } of tree) {
+    if (isAllowlisted(config, name).allowed) {
+      continue;
+    }
+    if (isKnownMalware(name, version)) {
+      verdicts.push({ kind: 'flagged', name, reasons: [{ kind: 'known-malware' }] });
+    }
+  }
+
+  return verdicts;
 }
