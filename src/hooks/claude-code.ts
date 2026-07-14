@@ -32,13 +32,23 @@ export async function runClaudeCodeHook(): Promise<void> {
   }
 
   const repoRoot = typeof payload?.cwd === 'string' ? payload.cwd : repoRootOrCwd();
-  const candidates = candidatesFor(command, repoRoot);
-  if (candidates.length === 0) {
+  const { named, transitive } = candidatesFor(command, repoRoot);
+  if (named.length === 0 && transitive.length === 0) {
     return;
   }
 
   const config = loadConfig(repoRoot);
-  const verdicts = await checkPackages(candidates, config);
+
+  // Packages the command actually names get the full check, including publisher drift, because
+  // there are only ever a handful of them. The lockfile can hold hundreds, and fetching every one
+  // of their version histories (react's alone is 6.6MB) would be slow enough to time out, which
+  // fails open and means the check silently does not happen at all.
+  const [namedVerdicts, transitiveVerdicts] = await Promise.all([
+    checkPackages(named, config, 'thorough'),
+    checkPackages(transitive, config, 'quick'),
+  ]);
+
+  const verdicts = [...namedVerdicts, ...transitiveVerdicts];
   const risky = verdicts.filter(isRisky);
 
   if (config.mode === 'strict' && risky.length > 0) {
@@ -67,7 +77,10 @@ export async function runClaudeCodeHook(): Promise<void> {
  * - it names nothing and installs the lockfile (`npm ci`, a bare `npm install`), which is what
  *   happens on a fresh clone of a repo whose lockfile is already poisoned
  */
-export function candidatesFor(command: string, repoRoot: string): string[] {
+export function candidatesFor(
+  command: string,
+  repoRoot: string,
+): { named: string[]; transitive: string[] } {
   const intent = parseCommand(command);
 
   // A locally installed tool (`npx tsc`, `npx vitest`) is not fetched from the registry at all, so
@@ -75,15 +88,12 @@ export function candidatesFor(command: string, repoRoot: string): string[] {
   // existing on npm, which is a false alarm of the worst kind.
   const executes = intent.executes.filter((name) => !isLocalTool(repoRoot, name));
 
-  const candidates = new Set([...intent.installs, ...executes]);
+  const named = [...new Set([...intent.installs, ...executes])];
+  const transitive = intent.lockfile
+    ? packagesInLockfile(repoRoot).filter((name) => !named.includes(name))
+    : [];
 
-  if (intent.lockfile) {
-    for (const name of packagesInLockfile(repoRoot)) {
-      candidates.add(name);
-    }
-  }
-
-  return [...candidates];
+  return { named, transitive };
 }
 
 function isLocalTool(repoRoot: string, name: string): boolean {

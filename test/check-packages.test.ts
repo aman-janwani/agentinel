@@ -49,7 +49,7 @@ describe('checkPackages', () => {
     // megabytes. A healthy download count already rules out a flag, so it must not be requested.
     const fetchMock = stubNpm(50_000_000, 3000);
 
-    const verdicts = await checkPackages(['react'], defaultConfig());
+    const verdicts = await checkPackages(['react'], defaultConfig(), 'quick');
 
     expect(verdicts).toEqual([{ kind: 'clean', name: 'react' }]);
     const urls = fetchMock.mock.calls.map((call) => call[0] as string);
@@ -60,9 +60,17 @@ describe('checkPackages', () => {
   it('does fetch the registry when downloads are low, since age decides it', async () => {
     const fetchMock = stubNpm(4, 2);
 
-    const verdicts = await checkPackages(['sketchy-pkg'], defaultConfig());
+    const verdicts = await checkPackages(['sketchy-pkg'], defaultConfig(), 'quick');
 
-    expect(verdicts[0]).toMatchObject({ kind: 'flagged', ageDays: 2, downloads: 4 });
+    const verdict = verdicts[0]!;
+    expect(verdict.kind).toBe('flagged');
+    if (verdict.kind === 'flagged') {
+      expect(verdict.reasons).toContainEqual({
+        kind: 'new-and-unpopular',
+        ageDays: 2,
+        downloads: 4,
+      });
+    }
     const urls = fetchMock.mock.calls.map((call) => call[0] as string);
     expect(urls.some((url) => url.startsWith('https://registry.npmjs.org/'))).toBe(true);
   });

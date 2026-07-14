@@ -17,7 +17,10 @@ describe('fetchRegistry', () => {
 
     const result = await fetchRegistry('lodash');
 
-    expect(result).toEqual({ kind: 'found', created: new Date('2015-03-01T10:00:00.000Z') });
+    expect(result.kind).toBe('found');
+    if (result.kind === 'found') {
+      expect(result.facts.created).toEqual(new Date('2015-03-01T10:00:00.000Z'));
+    }
   });
 
   it('encodes the slash in a scoped package name', async () => {

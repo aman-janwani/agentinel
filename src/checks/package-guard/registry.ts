@@ -1,13 +1,15 @@
-import type { RegistryResult } from '../../types.js';
+import type { PackageFacts, RegistryResult } from '../../types.js';
 import { get, isTimeout } from './http.js';
 
 const REGISTRY_URL = 'https://registry.npmjs.org';
 
 /**
- * Looks up a package on the public npm registry to find out when it was first published.
+ * Reads everything useful the npm registry knows about a package, in one request.
  *
- * We never treat a failure here as "the package is fine" or "the package is bad". If the registry
- * is unreachable or gives us something we can't read, we say so and let the caller decide.
+ * The packument is the only thing we fetch, and it carries far more than the creation date: who
+ * published each version, how many versions exist, whether there is a repository link, how big the
+ * tarball is, and whether npm has taken the package down. All of those signals are free, and unlike
+ * age they do not stop working after 30 days.
  */
 export async function fetchRegistry(name: string): Promise<RegistryResult> {
   // A scoped name like @scope/pkg has to keep its slash escaped or the registry sees two path
@@ -39,35 +41,125 @@ export async function fetchRegistry(name: string): Promise<RegistryResult> {
     return { kind: 'unavailable', reason: describeFailure(error) };
   }
 
-  const created = readCreatedDate(body);
-  if (created === null) {
+  const facts = readFacts(body);
+  if (facts === null) {
     return { kind: 'unavailable', reason: 'registry response had no usable creation date' };
   }
 
-  return { kind: 'found', created };
+  return { kind: 'found', facts };
 }
 
-function readCreatedDate(body: unknown): Date | null {
+function readFacts(body: unknown): PackageFacts | null {
   if (typeof body !== 'object' || body === null) {
     return null;
   }
+  const doc = body as Record<string, unknown>;
 
-  const time = (body as Record<string, unknown>).time;
-  if (typeof time !== 'object' || time === null) {
+  const created = readCreatedDate(doc);
+  if (created === null) {
     return null;
   }
 
-  const created = (time as Record<string, unknown>).created;
+  const versions = asRecord(doc.versions) ?? {};
+  const order = versionsInPublishOrder(doc, versions);
+  const latestName = latestVersionName(doc, order);
+  const latest = latestName ? asRecord(versions[latestName]) : null;
+
+  const previousName = order[order.indexOf(latestName ?? '') - 1];
+  const previous = previousName ? asRecord(versions[previousName]) : null;
+
+  const latestPublisher = publisherOf(latest);
+  const priorPublishers = order
+    .filter((v) => v !== latestName)
+    .map((v) => publisherOf(asRecord(versions[v])))
+    .filter((p): p is string => p !== null);
+
+  return {
+    created,
+    latestVersion: latestName,
+    securityHold: isSecurityHold(doc, latestName),
+    versionCount: Object.keys(versions).length,
+    hasRepository: Boolean(latest?.repository ?? doc.repository),
+    latestPublisher,
+    priorPublishers,
+    unpackedSize: sizeOf(latest),
+    previousUnpackedSize: sizeOf(previous),
+    latestIsSmallBump: isSmallBump(previousName, latestName),
+  };
+}
+
+/**
+ * npm replaces a package it has taken down with a stub: the version is suffixed `-security` and the
+ * description reads "security holding package". This is npm itself declaring the package malicious.
+ * It is definitive, it costs nothing to check, and it never expires.
+ */
+function isSecurityHold(doc: Record<string, unknown>, latestName: string | null): boolean {
+  if (typeof latestName === 'string' && latestName.endsWith('-security')) {
+    return true;
+  }
+  const description = doc.description;
+  return typeof description === 'string' && description.toLowerCase().includes('security holding');
+}
+
+/** Publishers that are machines. A CI publisher is the healthy case, not a red flag. */
+function isMachinePublisher(name: string): boolean {
+  return /github|actions|bot|ci|npm-cli|semantic-release/i.test(name);
+}
+
+function publisherOf(version: Record<string, unknown> | null): string | null {
+  const user = asRecord(version?._npmUser);
+  const name = user?.name;
+  return typeof name === 'string' ? name : null;
+}
+
+function sizeOf(version: Record<string, unknown> | null): number | null {
+  const dist = asRecord(version?.dist);
+  const size = dist?.unpackedSize;
+  return typeof size === 'number' && Number.isFinite(size) ? size : null;
+}
+
+/** Versions ordered by when they were published, which is the order the `time` map records. */
+function versionsInPublishOrder(
+  doc: Record<string, unknown>,
+  versions: Record<string, unknown>,
+): string[] {
+  const time = asRecord(doc.time) ?? {};
+  return Object.keys(time)
+    .filter((key) => key !== 'created' && key !== 'modified' && key in versions)
+    .sort((a, b) => Date.parse(String(time[a])) - Date.parse(String(time[b])));
+}
+
+function latestVersionName(doc: Record<string, unknown>, order: string[]): string | null {
+  const tags = asRecord(doc['dist-tags']);
+  const latest = tags?.latest;
+  if (typeof latest === 'string') {
+    return latest;
+  }
+  return order.length > 0 ? (order[order.length - 1] ?? null) : null;
+}
+
+/** A patch or minor bump. A size jump only means something when the version barely changed. */
+function isSmallBump(previous: string | undefined, latest: string | null): boolean {
+  if (!previous || !latest) {
+    return false;
+  }
+  const major = (v: string) => v.split('.')[0];
+  return major(previous) === major(latest);
+}
+
+function readCreatedDate(doc: Record<string, unknown>): Date | null {
+  const time = asRecord(doc.time);
+  const created = time?.created;
   if (typeof created !== 'string') {
     return null;
   }
 
   const parsed = new Date(created);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 
-  return parsed;
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
 }
 
 function describeFailure(error: unknown): string {
