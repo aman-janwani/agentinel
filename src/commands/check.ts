@@ -31,6 +31,7 @@ export async function runCheck(names: string[]): Promise<number> {
     }
     const message = formatVerdict(verdict);
     if (message) {
+      console.log('');
       console.log(message);
     }
   }

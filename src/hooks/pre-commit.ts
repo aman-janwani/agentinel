@@ -25,7 +25,7 @@ export async function runPreCommitHook(): Promise<number> {
   for (const verdict of verdicts) {
     const message = formatVerdict(verdict, process.stderr);
     if (message) {
-      process.stderr.write(message + '\n');
+      process.stderr.write('\n' + message + '\n');
     }
   }
 
