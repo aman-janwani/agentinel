@@ -1,8 +1,10 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runInit } from '../src/commands/init.js';
 import { runAgentHook, type AgentKind } from '../src/hooks/agents.js';
 
 /**
@@ -172,7 +174,10 @@ describe('staying out of the way', () => {
   it('never prompts a Copilot user over a check that merely could not run', async () => {
     // A skipped check is worth a line in Claude Code, where it costs nothing. On Copilot the only
     // channel is `ask`, so the same line would interrupt the user to tell them nothing happened.
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 500 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('nope', { status: 500 })),
+    );
 
     expect(await runHook('copilot', 'npm i sketchy-pkg', repoInMode('warn'))).toBeNull();
   });
@@ -208,5 +213,98 @@ describe('the Copilot fail-closed trap', () => {
     await expect(
       runHook('copilot', 'npm i sketchy-pkg', repoInMode('strict')),
     ).resolves.not.toThrow();
+  });
+});
+
+describe('wiring the agents into a repo', () => {
+  let repo: string;
+  let cwd: string;
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), 'asen-init-'));
+    cwd = process.cwd();
+    process.chdir(repo);
+    execFileSync('git', ['init'], { cwd: repo, stdio: 'ignore' });
+
+    // The agents are wired only where there is evidence of them, so give the repo that evidence.
+    // HOME is redirected too, so a machine that happens to run Codex cannot change the result.
+    vi.stubEnv('HOME', repo);
+    for (const dir of ['.codex', '.gemini', join('.github', 'hooks')]) {
+      mkdirSync(join(repo, dir), { recursive: true });
+    }
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    process.chdir(cwd);
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  /** The shape each agent's own config file has, which is the thing under test. */
+  interface Registered {
+    matcher?: string;
+    hooks?: { type?: string; command?: string }[];
+  }
+  interface AgentSettings {
+    version?: number;
+    theme?: string;
+    hooks?: {
+      PreToolUse?: Registered[];
+      BeforeTool?: Registered[];
+      preToolUse?: { type?: string; matcher?: string; bash?: string }[];
+    };
+  }
+
+  function read(relativePath: string): AgentSettings {
+    return JSON.parse(readFileSync(join(repo, relativePath), 'utf8')) as AgentSettings;
+  }
+
+  it('registers the hook in each agent config, in that agent own schema', () => {
+    runInit();
+
+    const codex = read('.codex/hooks.json').hooks?.PreToolUse?.[0];
+    expect(codex?.matcher).toBe('Bash');
+    expect(codex?.hooks?.[0]?.command).toContain('hook codex');
+
+    const copilot = read('.github/hooks/agentinel.json');
+    expect(copilot.version).toBe(1);
+    expect(copilot.hooks?.preToolUse?.[0]?.bash).toContain('hook copilot');
+
+    const gemini = read('.gemini/settings.json').hooks?.BeforeTool?.[0];
+    expect(gemini?.matcher).toBe('run_shell_command');
+    expect(gemini?.hooks?.[0]?.command).toContain('hook gemini');
+  });
+
+  it('adds no duplicate however many times it runs', () => {
+    // A duplicate entry is not cosmetic. Every copy fires on every single command the agent runs.
+    runInit();
+    runInit();
+    runInit();
+
+    expect(read('.codex/hooks.json').hooks?.PreToolUse).toHaveLength(1);
+    expect(read('.github/hooks/agentinel.json').hooks?.preToolUse).toHaveLength(1);
+    expect(read('.gemini/settings.json').hooks?.BeforeTool).toHaveLength(1);
+  });
+
+  it('keeps what is already in those files', () => {
+    writeFileSync(
+      join(repo, '.gemini', 'settings.json'),
+      JSON.stringify({ theme: 'dark', hooks: { BeforeTool: [{ matcher: 'write_file' }] } }),
+      'utf8',
+    );
+
+    runInit();
+
+    const gemini = read('.gemini/settings.json');
+    expect(gemini.theme).toBe('dark');
+    expect(gemini.hooks?.BeforeTool).toHaveLength(2);
+  });
+
+  it('leaves an agent alone when there is no sign of it', () => {
+    rmSync(join(repo, '.codex'), { recursive: true, force: true });
+
+    runInit();
+
+    expect(existsSync(join(repo, '.codex'))).toBe(false);
   });
 });
