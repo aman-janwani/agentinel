@@ -38,8 +38,8 @@ describe('formatVerdict', () => {
       downloads: 4,
     });
 
-    expect(notFound).toContain('does not exist on the npm registry');
-    expect(notFound).not.toContain('looks suspicious');
+    expect(notFound).toContain('PACKAGE DOES NOT EXIST');
+    expect(notFound).not.toContain('SUSPICIOUS PACKAGE');
     expect(notFound).not.toBe(flagged);
   });
 
@@ -48,7 +48,20 @@ describe('formatVerdict', () => {
 
     expect(text).toContain('zod');
     expect(text).toContain('registry timed out');
-    expect(text).toContain('nothing was blocked');
+    expect(text).toContain('Nothing was blocked.');
+  });
+
+  it('never lets a long package name break the border', () => {
+    const name = '@a-very-long-scope/an-extremely-long-package-name-that-keeps-going';
+    const text = formatVerdict({ kind: 'flagged', name, ageDays: 1, downloads: 1 }) ?? '';
+
+    const widths = new Set(
+      text
+        .split('\n')
+        .filter((l) => l.startsWith('│'))
+        .map((l) => l.length),
+    );
+    expect(widths.size).toBe(1);
   });
 });
 

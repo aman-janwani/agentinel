@@ -51,7 +51,7 @@ describe('the Claude Code hook in warn mode', () => {
     const output = await runHook('npm i sketchy-pkg', process.cwd());
 
     expect(output?.systemMessage).toContain('sketchy-pkg');
-    expect(output?.systemMessage).toContain('looks suspicious');
+    expect(output?.systemMessage).toContain('SUSPICIOUS PACKAGE');
   });
 
   it('tells Claude too, so the agent can reconsider the package', async () => {
