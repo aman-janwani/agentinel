@@ -1,13 +1,16 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { checkPackages } from '../checks/package-guard/evaluate.js';
-import { parseInstallCommand } from '../checks/package-guard/parse-install.js';
+import { packagesInLockfile } from '../checks/package-guard/lockfile.js';
+import { parseCommand } from '../checks/package-guard/parse-install.js';
 import { repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { loadConfig } from '../config/load.js';
 import { denyReason, plainSummary } from '../output/format.js';
 import { isRisky, type Verdict } from '../types.js';
 
 /**
- * Claude Code PreToolUse hook. Reads the hook payload on stdin, and if the Bash command is an
- * install, checks every package it would install.
+ * Claude Code PreToolUse hook. Reads the hook payload on stdin and checks whatever the command
+ * would pull from the npm registry.
  *
  * How Claude Code reads a hook, from the official docs, because getting this wrong makes the whole
  * feature silent: on exit 0 it parses **stdout** for JSON and **ignores stderr entirely**. So a
@@ -18,7 +21,8 @@ import { isRisky, type Verdict } from '../types.js';
  *   can reconsider rather than carrying on blindly.
  * - `permissionDecision: "deny"` blocks the call, and is only used in strict mode.
  *
- * We always exit 0. A crash in this tool must never wedge a session.
+ * We always exit 0. A crash in this tool must never wedge a session, and Copilot's hook contract
+ * treats any non-zero exit as a denial, so exiting non-zero would break that agent outright.
  */
 export async function runClaudeCodeHook(): Promise<void> {
   const payload = await readStdinJson();
@@ -27,12 +31,12 @@ export async function runClaudeCodeHook(): Promise<void> {
     return;
   }
 
-  const candidates = parseInstallCommand(command);
+  const repoRoot = typeof payload?.cwd === 'string' ? payload.cwd : repoRootOrCwd();
+  const candidates = candidatesFor(command, repoRoot);
   if (candidates.length === 0) {
     return;
   }
 
-  const repoRoot = typeof payload?.cwd === 'string' ? payload.cwd : repoRootOrCwd();
   const config = loadConfig(repoRoot);
   const verdicts = await checkPackages(candidates, config);
   const risky = verdicts.filter(isRisky);
@@ -49,6 +53,42 @@ export async function runClaudeCodeHook(): Promise<void> {
   }
 
   warn(verdicts);
+}
+
+/**
+ * Everything worth checking for this command.
+ *
+ * Three ways a command reaches the registry, and all three used to be handled badly:
+ *
+ * - it names packages to install, which is the obvious one
+ * - it names a package to **run right now** (`npx`, `bunx`, `dlx`). Nothing is written to
+ *   package.json, so the pre-commit hook never sees it either. This is the sharpest case and we
+ *   used to ignore it completely
+ * - it names nothing and installs the lockfile (`npm ci`, a bare `npm install`), which is what
+ *   happens on a fresh clone of a repo whose lockfile is already poisoned
+ */
+export function candidatesFor(command: string, repoRoot: string): string[] {
+  const intent = parseCommand(command);
+
+  // A locally installed tool (`npx tsc`, `npx vitest`) is not fetched from the registry at all, so
+  // checking it would only produce noise, and a private workspace tool would be reported as not
+  // existing on npm, which is a false alarm of the worst kind.
+  const executes = intent.executes.filter((name) => !isLocalTool(repoRoot, name));
+
+  const candidates = new Set([...intent.installs, ...executes]);
+
+  if (intent.lockfile) {
+    for (const name of packagesInLockfile(repoRoot)) {
+      candidates.add(name);
+    }
+  }
+
+  return [...candidates];
+}
+
+function isLocalTool(repoRoot: string, name: string): boolean {
+  const binary = name.includes('/') ? name.split('/').pop()! : name;
+  return existsSync(join(repoRoot, 'node_modules', '.bin', binary));
 }
 
 /**

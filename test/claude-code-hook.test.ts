@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runClaudeCodeHook } from '../src/hooks/claude-code.js';
@@ -84,10 +85,22 @@ describe('the Claude Code hook in warn mode', () => {
     expect(await runHook('npm run build', process.cwd())).toBeNull();
   });
 
-  it('says nothing for a bare install, which only reads the lockfile', async () => {
+  it('audits the lockfile on a bare install, instead of ignoring it', async () => {
+    // A bare `npm install` or an `npm ci` names no package, so we used to say nothing at all. That
+    // is exactly the fresh-clone-of-a-poisoned-repo case: the lockfile already holds the malware and
+    // the commit happened long ago. The lockfile is the only place the truth is written down.
     stubNpm(4, 2);
 
-    expect(await runHook('npm install', process.cwd())).toBeNull();
+    const output = await runHook('npm install', process.cwd());
+
+    expect(output).not.toBeNull();
+    expect(String(output?.systemMessage)).toContain('SUSPICIOUS PACKAGE');
+  });
+
+  it('says nothing when there is no lockfile to audit', async () => {
+    stubNpm(4, 2);
+
+    expect(await runHook('npm ci', tmpdir())).toBeNull();
   });
 
   it('never puts escape codes in the JSON it emits', async () => {
