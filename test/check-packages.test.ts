@@ -123,3 +123,39 @@ describe('checkPackages', () => {
     expect(urls.every((url) => url.includes('%2F'))).toBe(true);
   });
 });
+
+describe('scan (the shared engine for all entry points)', () => {
+  it('checks named packages thoroughly and the tree for known malware', async () => {
+    const { scan } = await import('../src/checks/package-guard/evaluate.js');
+    const { setKnownMalwareForTests } = await import('../src/checks/package-guard/malware.js');
+
+    setKnownMalwareForTests({ 'buried-malware': ['2.0.0'] });
+    stubNpm(50_000_000, 3000);
+
+    const verdicts = await scan(
+      ['lodash'],
+      [
+        { name: 'safe-dep', version: '1.0.0' },
+        { name: 'buried-malware', version: '2.0.0' },
+      ],
+      defaultConfig(),
+    );
+
+    const flagged = verdicts.filter((v) => v.kind === 'flagged').map((v) => v.name);
+    expect(flagged).toEqual(['buried-malware']);
+    setKnownMalwareForTests(null);
+  });
+
+  it('does not flag a tree package whose malicious version is not the one installed', async () => {
+    const { scan } = await import('../src/checks/package-guard/evaluate.js');
+    const { setKnownMalwareForTests } = await import('../src/checks/package-guard/malware.js');
+
+    setKnownMalwareForTests({ chalk: ['5.6.1'] });
+    stubNpm(50_000_000, 3000);
+
+    const verdicts = await scan([], [{ name: 'chalk', version: '5.7.0' }], defaultConfig());
+
+    expect(verdicts.filter((v) => v.kind === 'flagged')).toEqual([]);
+    setKnownMalwareForTests(null);
+  });
+});
