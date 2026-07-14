@@ -1,12 +1,12 @@
-// Works out which npm packages a shell command would install. Everything here errs on the side
-// of returning nothing: a missed package is a missed warning, but a wrong guess means we warn
+// Works out what a shell command would pull from the npm registry. Everything here errs on the
+// side of returning nothing: a missed package is a missed warning, but a wrong guess means we warn
 // about something the user never asked for, which trains people to ignore the tool.
 
 /**
- * Package managers that install from the npm registry. pnpm and yarn are different clients for
- * the same registry, so the age and download signals mean exactly the same thing for all three.
+ * Clients that install from the npm registry. They are different front ends to the same registry,
+ * so the age, download and malware signals mean exactly the same thing for all of them.
  */
-const PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn']);
+const PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun']);
 
 /** Subcommands that install a named package. npm accepts several aliases for `install`. */
 const INSTALL_SUBCOMMANDS = new Set([
@@ -20,8 +20,32 @@ const INSTALL_SUBCOMMANDS = new Set([
   'instal',
 ]);
 
+/**
+ * Subcommands that download a package and RUN it, right now.
+ *
+ * This is the sharper end of the problem. `npx some-package` fetches and executes code immediately.
+ * Nothing is written to package.json, so the pre-commit hook never sees it either, and there is no
+ * second line of defence. Agents reach for npx constantly.
+ */
+const EXECUTE_SUBCOMMANDS = new Set(['dlx', 'exec']);
+
+/** Commands whose whole purpose is to fetch and run a package. */
+const EXECUTE_COMMANDS = new Set(['npx', 'bunx', 'pnpx']);
+
+/** Subcommands that install whatever the lockfile says, without naming anything. */
+const LOCKFILE_SUBCOMMANDS = new Set(['ci', 'install', 'i']);
+
 /** Flags whose value is a separate token, so the value must not be read as a package name. */
-const VALUE_TAKING_FLAGS = new Set(['--registry', '--prefix', '--workspace', '-w']);
+const VALUE_TAKING_FLAGS = new Set([
+  '--registry',
+  '--prefix',
+  '--workspace',
+  '-w',
+  '--package',
+  '-p',
+  '--call',
+  '-c',
+]);
 
 /**
  * npm's naming rules: url-safe, optional scope, no leading dot or underscore, 214 characters max.
@@ -40,23 +64,46 @@ export function isValidPackageName(token: string): boolean {
   return PACKAGE_NAME.test(token);
 }
 
-/**
- * Returns the npm package names the command would install, or [] if it is not an npm install or
- * cannot be confidently parsed. A bare `npm install` installs from the lockfile, so it has no
- * candidates.
- */
-export function parseInstallCommand(command: string): string[] {
-  const names: string[] = [];
+/** What a command would actually do with the npm registry. */
+export interface CommandIntent {
+  /** Packages named on the command line, which would be added to the project. */
+  installs: string[];
+  /** Packages that would be downloaded and executed immediately (npx, bunx, dlx, npm exec). */
+  executes: string[];
+  /**
+   * The command installs whatever the lockfile already says (`npm ci`, a bare `npm install`).
+   * Nothing is named, so the only way to check it is to read the lockfile.
+   */
+  lockfile: boolean;
+}
+
+const NOTHING: CommandIntent = { installs: [], executes: [], lockfile: false };
+
+/** Everything the command would pull from the registry, whether to install it or to run it. */
+export function parseCommand(command: string): CommandIntent {
+  const intent: CommandIntent = { installs: [], executes: [], lockfile: false };
 
   for (const segment of splitSegments(command)) {
-    for (const name of parseSegment(segment)) {
-      if (!names.includes(name)) {
-        names.push(name);
-      }
+    const found = parseSegment(segment);
+    for (const name of found.installs) {
+      if (!intent.installs.includes(name)) intent.installs.push(name);
     }
+    for (const name of found.executes) {
+      if (!intent.executes.includes(name)) intent.executes.push(name);
+    }
+    if (found.lockfile) intent.lockfile = true;
   }
 
-  return names;
+  return intent;
+}
+
+/**
+ * Just the package names a command would install or run. Kept because most callers only care about
+ * "which packages should I check", not about how they arrive.
+ */
+export function parseInstallCommand(command: string): string[] {
+  const { installs, executes } = parseCommand(command);
+  return [...new Set([...installs, ...executes])];
 }
 
 /** Splits on shell separators so `cd foo && npm i x` is checked segment by segment. */
@@ -67,41 +114,99 @@ function splitSegments(command: string): string[] {
     .filter((segment) => segment.length > 0);
 }
 
-function parseSegment(segment: string): string[] {
+function parseSegment(segment: string): CommandIntent {
   const tokens = tokenize(segment);
-  const manager = tokens[0];
-  if (manager === undefined || !PACKAGE_MANAGERS.has(manager)) {
-    return [];
+  const head = tokens[0];
+  if (head === undefined) {
+    return NOTHING;
   }
 
-  // Flags can appear before the subcommand too, for example `npm --silent i left-pad`.
+  // `npx pkg`, `bunx pkg`, `pnpx pkg`: fetch and run, no subcommand involved.
+  if (EXECUTE_COMMANDS.has(head)) {
+    return { installs: [], executes: namesAfter(tokens, 1, 1), lockfile: false };
+  }
+
+  if (!PACKAGE_MANAGERS.has(head)) {
+    return NOTHING;
+  }
+
+  // Flags can come before the subcommand, for example `npm --silent i left-pad`.
   let index = 1;
   while (index < tokens.length && isFlag(tokens[index]!)) {
     index += consumedBy(tokens[index]!);
   }
 
   const subcommand = tokens[index];
-  if (subcommand === undefined || !INSTALL_SUBCOMMANDS.has(subcommand)) {
-    return [];
+
+  // A bare `yarn` installs from the lockfile.
+  if (subcommand === undefined) {
+    return head === 'yarn' ? { ...NOTHING, lockfile: true } : NOTHING;
   }
   index += 1;
 
+  // `pnpm dlx pkg`, `yarn dlx pkg`, `npm exec pkg`: fetch and run.
+  if (EXECUTE_SUBCOMMANDS.has(subcommand)) {
+    return { installs: [], executes: namesAfter(tokens, index, 1), lockfile: false };
+  }
+
+  if (!INSTALL_SUBCOMMANDS.has(subcommand) && !LOCKFILE_SUBCOMMANDS.has(subcommand)) {
+    return NOTHING;
+  }
+
+  const named = namesAfter(tokens, index, Infinity);
+
+  // Naming nothing means "install what the lockfile says". That is `npm ci`, a bare `npm install`,
+  // and a fresh clone. There is no package name to read, so the lockfile has to be read instead.
+  if (named.length === 0 && positionalCount(tokens, index) === 0) {
+    return LOCKFILE_SUBCOMMANDS.has(subcommand) ? { ...NOTHING, lockfile: true } : NOTHING;
+  }
+
+  return { installs: named, executes: [], lockfile: false };
+}
+
+/** Reads up to `limit` package names from the positional arguments starting at `start`. */
+function namesAfter(tokens: string[], start: number, limit: number): string[] {
   const names: string[] = [];
-  while (index < tokens.length) {
+
+  for (let index = start; index < tokens.length && names.length < limit; index += 1) {
     const token = tokens[index]!;
+
+    // Everything after a bare `--` is arguments to the package, not more packages.
+    if (token === '--') {
+      continue;
+    }
     if (isFlag(token)) {
-      index += consumedBy(token);
+      index += consumedBy(token) - 1;
       continue;
     }
 
     const name = packageNameFrom(token);
     if (name !== null) {
       names.push(name);
+    } else if (limit === 1) {
+      // For npx, the first positional IS the package. If we cannot read it as a package name
+      // (a local path, a git URL), there is nothing to check and nothing to guess at.
+      return names;
     }
-    index += 1;
   }
 
   return names;
+}
+
+/** How many positional (non flag) arguments follow, used to tell `npm i` from `npm i pkg`. */
+function positionalCount(tokens: string[], start: number): number {
+  let count = 0;
+
+  for (let index = start; index < tokens.length; index += 1) {
+    const token = tokens[index]!;
+    if (isFlag(token)) {
+      index += consumedBy(token) - 1;
+      continue;
+    }
+    if (token !== '--') count += 1;
+  }
+
+  return count;
 }
 
 /** Splits on whitespace, keeping quoted runs together and dropping the quotes. */

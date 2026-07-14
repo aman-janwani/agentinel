@@ -17,10 +17,17 @@ describe('parseInstallCommand', () => {
     expect(parseInstallCommand('pnpm install left-pad')).toEqual(['left-pad']);
   });
 
-  it('ignores commands that are not an install', () => {
-    expect(parseInstallCommand('npx left-pad')).toEqual([]);
+  it('ignores commands that do not reach the registry', () => {
     expect(parseInstallCommand('pnpm run build')).toEqual([]);
-    expect(parseInstallCommand('yarn install')).toEqual([]);
+    expect(parseInstallCommand('npm run test')).toEqual([]);
+    expect(parseInstallCommand('git status')).toEqual([]);
+  });
+
+  it('does NOT ignore npx, which downloads and runs a package', () => {
+    // This used to return [], which was the single worst hole in the tool: `npx evil-pkg` executes
+    // code immediately, writes nothing to package.json, and so the pre-commit hook never sees it
+    // either. There was no second line of defence at all.
+    expect(parseInstallCommand('npx left-pad')).toEqual(['left-pad']);
   });
 
   it('resolves an aliased install to the package that actually gets installed', () => {
