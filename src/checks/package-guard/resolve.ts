@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { npmCommand } from '../../platform.js';
 
 /** A package the install would bring in, at the exact version it would bring in. */
 export interface Resolved {
@@ -30,15 +31,26 @@ export function resolveInstall(repoRoot: string, packages: string[]): Resolved[]
     return [];
   }
 
+  // On Windows npm is npm.cmd and must go through a shell, otherwise this throws ENOENT and the
+  // whole transitive tree is lost, which is exactly the coverage that makes this more than a toy.
+  // Package names have already been validated against npm's naming rules before they reach here, so
+  // there are no shell metacharacters to worry about even when a shell is involved.
+  const npm = npmCommand();
+
   let output: string;
   try {
-    output = execFileSync('npm', ['install', '--dry-run', '--no-audit', '--no-fund', ...packages], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      timeout: TIMEOUT_MS,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      env: { ...process.env, NO_COLOR: '1' },
-    });
+    output = execFileSync(
+      npm.file,
+      ['install', '--dry-run', '--no-audit', '--no-fund', ...packages],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        timeout: TIMEOUT_MS,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        shell: npm.shell,
+        env: { ...process.env, NO_COLOR: '1' },
+      },
+    );
   } catch (error) {
     // npm fails when a package does not exist, which is a real answer rather than a reason to give
     // up. The named packages are checked over the network anyway, so falling back here loses the

@@ -5,6 +5,7 @@ import { isAbsolute, join } from 'node:path';
 import { repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { configPath, saveConfig } from '../config/load.js';
 import { defaultConfig } from '../config/schema.js';
+import { isWindows } from '../platform.js';
 import { installShim, type ShimTarget } from './shim.js';
 
 /** Written into the pre-commit script so we can recognise our own hook file later. */
@@ -54,8 +55,16 @@ function hasLocalInstall(repoRoot: string): boolean {
 /**
  * Claude Code runs hooks from an unspecified working directory, so the path has to be absolute.
  * CLAUDE_PROJECT_DIR is the variable it sets for exactly this.
+ *
+ * On Windows Claude Code runs the hook through cmd.exe by default, where `$CLAUDE_PROJECT_DIR`, the
+ * forward slashes, and the extension-less `asen` all fail. The `npx agentinel` form works in cmd,
+ * so Windows uses it even when the package is installed locally, giving up a little startup speed
+ * for a command that actually runs.
  */
 function claudeCodeCommand(repoRoot: string): string {
+  if (isWindows()) {
+    return 'npx agentinel';
+  }
   return hasLocalInstall(repoRoot)
     ? '"$CLAUDE_PROJECT_DIR"/node_modules/.bin/asen'
     : 'npx agentinel';
@@ -124,6 +133,11 @@ function wireClaudeCodeHook(repoRoot: string, command: string): void {
  * Code has CLAUDE_PROJECT_DIR for this, the others have nothing equivalent.
  */
 function agentHookCommand(repoRoot: string): string {
+  // Same reasoning as the Claude Code command: the `$(...)` substitution is POSIX only and fails in
+  // cmd.exe, so Windows uses the npx form, which resolves through PATHEXT and works.
+  if (isWindows()) {
+    return 'npx agentinel';
+  }
   return hasLocalInstall(repoRoot)
     ? '"$(git rev-parse --show-toplevel)"/node_modules/.bin/asen'
     : 'npx agentinel';

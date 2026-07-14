@@ -5,12 +5,16 @@
 // without us seeing it. The shim closes that by putting a small script named `npm` (and pnpm, yarn,
 // bun, npx) earlier on PATH than the real one.
 //
-// Two rules govern everything in this file:
+// Two rules govern every shim, on every platform:
 //
-// 1. The shim must never recurse into itself. It finds the real binary by taking its own directory
-//    out of PATH and resolving again.
-// 2. The shim must fail open. If agentinel is missing, out of date, broken, or throws, the real
-//    command still runs. Breaking someone's `npm` is far worse than missing one check.
+// 1. It must never recurse into itself. It finds the real binary by taking its own directory out
+//    of PATH and resolving again.
+// 2. It must fail open. If agentinel is missing, out of date, broken, or throws, the real command
+//    still runs. Breaking someone's `npm` is far worse than missing one check.
+//
+// Unix gets POSIX sh scripts and a line in the shell rc. Windows gets .cmd scripts and a line in
+// the PowerShell profile, since cmd.exe and PowerShell can run neither sh scripts nor read a
+// .zshrc. The two shims do the same thing in each platform's own language.
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -35,28 +39,45 @@ const CLIENTS = ['npm', 'npx', 'pnpm', 'yarn', 'bun'];
  */
 export const BLOCK_EXIT_CODE = 2;
 
-/** Marks the line we add to the shell rc, so we can find it again and never add it twice. */
+/** Marks the line we add to a shell startup file, so we can find it again and never add it twice. */
 const RC_MARKER = '# agentinel';
 
-/** The parts of the environment the shim writes into. Injectable so tests never touch a real rc. */
+/** The parts of the environment the shim writes into. Injectable so tests never touch a real home. */
 export interface ShimTarget {
   home: string;
   shell: string;
+  platform: NodeJS.Platform;
 }
 
 export function currentTarget(): ShimTarget {
-  return { home: homedir(), shell: process.env.SHELL ?? '' };
+  return { home: homedir(), shell: process.env.SHELL ?? '', platform: process.platform };
 }
 
 export function shimDirectory(home: string): string {
   return join(home, '.agentinel', 'bin');
 }
 
+function onWindows(target: ShimTarget): boolean {
+  return target.platform === 'win32';
+}
+
+/** The file name a client's shim is written under. Windows needs the .cmd extension to be run. */
+export function shimFileName(client: string, target: ShimTarget): string {
+  return onWindows(target) ? `${client}.cmd` : client;
+}
+
 /**
- * Where the PATH line goes. Only interactive shells read an rc file, which is the point: the shim
- * is for commands a person types.
+ * The startup file that puts the shims on PATH.
+ *
+ * Only interactive shells read these, which is the point: the shim is for commands a person types.
+ * On Windows that is the PowerShell profile, since PowerShell is the default shell and reads it the
+ * way a Unix shell reads a .zshrc. cmd.exe has no equivalent, so a cmd.exe user is told to add the
+ * directory to PATH themselves.
  */
-export function shellRcPath(target: ShimTarget): string {
+export function startupFilePath(target: ShimTarget): string {
+  if (onWindows(target)) {
+    return join(target.home, 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1');
+  }
   if (target.shell.includes('zsh')) {
     return join(target.home, '.zshrc');
   }
@@ -71,9 +92,11 @@ export function installShim(repoRoot: string, target: ShimTarget = currentTarget
   mkdirSync(dir, { recursive: true });
 
   for (const client of CLIENTS) {
-    const path = join(dir, client);
-    writeFileSync(path, shimScript(client), 'utf8');
-    chmodSync(path, 0o755);
+    const path = join(dir, shimFileName(client, target));
+    writeFileSync(path, shimScript(client, target), 'utf8');
+    if (!onWindows(target)) {
+      chmodSync(path, 0o755);
+    }
   }
 
   console.log(`wrote shims for ${CLIENTS.join(', ')} in ${dir}`);
@@ -99,8 +122,16 @@ export function removeShim(target: ShimTarget = currentTarget()): number {
   return 0;
 }
 
+/** The line that prepends the shim directory to PATH, in the syntax of the target's shell. */
+function pathLine(target: ShimTarget): string {
+  if (onWindows(target)) {
+    return `$env:Path = "$HOME\\.agentinel\\bin;" + $env:Path  ${RC_MARKER}\n`;
+  }
+  return `export PATH="$HOME/.agentinel/bin:$PATH" ${RC_MARKER}\n`;
+}
+
 function addPathLine(target: ShimTarget): void {
-  const path = shellRcPath(target);
+  const path = startupFilePath(target);
   const existing = existsSync(path) ? readFileSync(path, 'utf8') : '';
 
   if (existing.includes(RC_MARKER)) {
@@ -108,14 +139,16 @@ function addPathLine(target: ShimTarget): void {
     return;
   }
 
+  // The PowerShell profile lives under Documents/PowerShell, which may not exist yet.
+  mkdirSync(join(path, '..'), { recursive: true });
+
   const separator = existing === '' || existing.endsWith('\n') ? '' : '\n';
-  const line = `export PATH="$HOME/.agentinel/bin:$PATH" ${RC_MARKER}\n`;
-  writeFileSync(path, `${existing}${separator}${line}`, 'utf8');
+  writeFileSync(path, `${existing}${separator}${pathLine(target)}`, 'utf8');
   console.log(`added the shims to PATH in ${path}`);
 }
 
 function removePathLine(target: ShimTarget): void {
-  const path = shellRcPath(target);
+  const path = startupFilePath(target);
   if (!existsSync(path)) {
     return;
   }
@@ -130,13 +163,17 @@ function removePathLine(target: ShimTarget): void {
   console.log(`removed the PATH line from ${path}`);
 }
 
+function shimScript(client: string, target: ShimTarget): string {
+  return onWindows(target) ? windowsShim(client) : posixShim(client);
+}
+
 /**
- * The shim itself. Written as POSIX sh, not bash, because it has to work as `sh -c "npm i x"` too.
+ * The Unix shim. Written as POSIX sh, not bash, because it has to work as `sh -c "npm i x"` too.
  *
- * Everything about it is arranged so that the real client runs no matter what goes wrong here. The
- * one path that stops the command is agentinel explicitly answering with BLOCK_EXIT_CODE.
+ * Everything is arranged so the real client runs no matter what goes wrong here. The one path that
+ * stops the command is agentinel explicitly answering with BLOCK_EXIT_CODE.
  */
-function shimScript(client: string): string {
+function posixShim(client: string): string {
   return `#!/bin/sh
 # agentinel shim for ${client}. Checks what the command would pull from the npm registry, then runs
 # the real ${client}. Undo with: asen unshim
@@ -195,6 +232,52 @@ fi
 
 exec "$real" "$@"
 `;
+}
+
+/**
+ * The Windows shim, a .cmd batch script. Same shape as the Unix one: find the real client while
+ * skipping our own directory, run the check, and only stop the command when agentinel answers with
+ * BLOCK_EXIT_CODE. Every other outcome runs the real client, so a missing or broken agentinel never
+ * breaks the user's npm.
+ *
+ * `where` lists matches in PATH order, so ours comes first and is filtered out by directory. The
+ * exit code is checked for exactly ${BLOCK_EXIT_CODE}, not ">= 2", so a crash (code 1) or a missing
+ * asen falls through to running the real client.
+ */
+function windowsShim(client: string): string {
+  return [
+    `@echo off`,
+    `rem agentinel shim for ${client}. Fails open: if agentinel is missing or broken, ${client} still runs.`,
+    `rem Undo with: asen unshim`,
+    `setlocal enabledelayedexpansion`,
+    ``,
+    `set "real="`,
+    `for /f "delims=" %%i in ('where ${client} 2^>nul') do (`,
+    `  echo %%i | findstr /i /c:".agentinel\\bin" >nul`,
+    `  if errorlevel 1 if not defined real set "real=%%i"`,
+    `)`,
+    ``,
+    `if not defined real (`,
+    `  echo agentinel: ${client} is not installed 1>&2`,
+    `  exit /b 127`,
+    `)`,
+    ``,
+    `if defined AGENTINEL_SKIP goto run`,
+    ``,
+    `set "asen="`,
+    `if exist "node_modules\\.bin\\asen.cmd" set "asen=node_modules\\.bin\\asen.cmd"`,
+    `if not defined asen for /f "delims=" %%a in ('where asen 2^>nul') do if not defined asen set "asen=%%a"`,
+    ``,
+    `if defined asen (`,
+    `  call "!asen!" check-command "${client} %*" <nul`,
+    `  if "!errorlevel!"=="${BLOCK_EXIT_CODE}" exit /b 1`,
+    `)`,
+    ``,
+    `:run`,
+    `"!real!" %*`,
+    `exit /b !errorlevel!`,
+    ``,
+  ].join('\r\n');
 }
 
 /**

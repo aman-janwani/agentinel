@@ -15,8 +15,9 @@ import { runInit } from '../src/commands/init.js';
 import {
   installShim,
   removeShim,
-  shellRcPath,
   shimDirectory,
+  shimFileName,
+  startupFilePath,
   type ShimTarget,
 } from '../src/commands/shim.js';
 
@@ -63,7 +64,9 @@ beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'asen-home-'));
   repo = mkdtempSync(join(tmpdir(), 'asen-repo-'));
   realBin = mkdtempSync(join(tmpdir(), 'asen-bin-'));
-  target = { home, shell: '/bin/zsh' };
+  // The runtime tests below execute the real shim, so they use this machine's own platform. The
+  // Windows-artifact tests further down force platform: 'win32' explicitly instead.
+  target = { home, shell: '/bin/zsh', platform: process.platform };
 
   cwd = process.cwd();
   process.chdir(repo);
@@ -95,10 +98,17 @@ describe('installShim', () => {
     }
   });
 
-  it('picks the rc file for the shell the user actually runs', () => {
-    expect(shellRcPath({ home, shell: '/bin/zsh' })).toBe(join(home, '.zshrc'));
-    expect(shellRcPath({ home, shell: '/usr/local/bin/bash' })).toBe(join(home, '.bashrc'));
-    expect(shellRcPath({ home, shell: '' })).toBe(join(home, '.profile'));
+  it('picks the startup file for the shell the user actually runs', () => {
+    const on = (shell: string, platform: NodeJS.Platform = 'linux'): string =>
+      startupFilePath({ home, shell, platform });
+
+    expect(on('/bin/zsh')).toBe(join(home, '.zshrc'));
+    expect(on('/usr/local/bin/bash')).toBe(join(home, '.bashrc'));
+    expect(on('')).toBe(join(home, '.profile'));
+    // Windows uses the PowerShell profile, whatever SHELL says.
+    expect(on('', 'win32')).toBe(
+      join(home, 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1'),
+    );
   });
 
   it('adds the PATH line once, however many times init runs', () => {
@@ -238,5 +248,102 @@ describe('the installed shim', () => {
     const result = runShim('pnpm', ['add', 'left-pad']);
 
     expect(result.status).toBe(127);
+  });
+});
+
+// Windows cannot run the sh shim and does not read a .zshrc, so it gets .cmd scripts and a line in
+// the PowerShell profile. This machine is not Windows, so these tests do not execute the shim; they
+// assert that the right files, with the right content, are generated for a win32 target. The rules
+// the batch shim must honour (skip our own dir, block only on the exact block code, fail open
+// otherwise) are checked by reading the generated script.
+describe('the Windows shim', () => {
+  let winHome: string;
+  let winTarget: ShimTarget;
+
+  beforeEach(() => {
+    winHome = mkdtempSync(join(tmpdir(), 'asen-win-'));
+    winTarget = { home: winHome, shell: '', platform: 'win32' };
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    return () => rmSync(winHome, { recursive: true, force: true });
+  });
+
+  it('names each shim with a .cmd extension so Windows will run it', () => {
+    for (const client of ['npm', 'npx', 'pnpm', 'yarn', 'bun']) {
+      expect(shimFileName(client, winTarget)).toBe(`${client}.cmd`);
+    }
+  });
+
+  it('writes a .cmd batch script for every client', () => {
+    installShim(winHome, winTarget);
+
+    for (const client of ['npm', 'npx', 'pnpm', 'yarn', 'bun']) {
+      const path = join(shimDirectory(winHome), `${client}.cmd`);
+      expect(existsSync(path)).toBe(true);
+      const script = readFileSync(path, 'utf8');
+      expect(script).toContain('@echo off');
+      // Uses CRLF line endings, which batch needs.
+      expect(script).toContain('\r\n');
+    }
+  });
+
+  it('makes the batch shim skip its own directory, so it cannot recurse', () => {
+    installShim(winHome, winTarget);
+    const script = readFileSync(join(shimDirectory(winHome), 'npm.cmd'), 'utf8');
+
+    expect(script).toContain('.agentinel\\bin');
+    expect(script).toContain('where npm');
+  });
+
+  it('makes the batch shim block only on the exact block code, and fail open otherwise', () => {
+    installShim(winHome, winTarget);
+    const script = readFileSync(join(shimDirectory(winHome), 'npm.cmd'), 'utf8');
+
+    // Exact string match on the block code, not ">= 2", so a crash (code 1) runs the real client.
+    expect(script).toContain('if "!errorlevel!"=="2" exit /b 1');
+    // And it runs the real client at the end no matter what.
+    expect(script).toContain('"!real!" %*');
+  });
+
+  it('adds the shims to PATH through the PowerShell profile', () => {
+    installShim(winHome, winTarget);
+
+    const profile = join(winHome, 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1');
+    expect(existsSync(profile)).toBe(true);
+    const text = readFileSync(profile, 'utf8');
+    expect(text).toContain('$env:Path');
+    expect(text).toContain('.agentinel\\bin');
+    expect(text).toContain('# agentinel');
+  });
+
+  it('adds the PowerShell PATH line only once', () => {
+    installShim(winHome, winTarget);
+    installShim(winHome, winTarget);
+
+    const profile = join(winHome, 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1');
+    const added = readFileSync(profile, 'utf8')
+      .split('\n')
+      .filter((line) => line.includes('.agentinel'));
+    expect(added).toHaveLength(1);
+  });
+
+  it('removes the .cmd shims and the PowerShell line on unshim', () => {
+    installShim(winHome, winTarget);
+    removeShim(winTarget);
+
+    expect(existsSync(shimDirectory(winHome))).toBe(false);
+    const profile = join(winHome, 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1');
+    expect(readFileSync(profile, 'utf8')).not.toContain('.agentinel');
+  });
+});
+
+describe('the Linux shim', () => {
+  it('uses .bashrc and a bare shim name, like macOS', () => {
+    const linHome = mkdtempSync(join(tmpdir(), 'asen-lin-'));
+    const linTarget: ShimTarget = { home: linHome, shell: '/bin/bash', platform: 'linux' };
+
+    expect(shimFileName('npm', linTarget)).toBe('npm');
+    expect(startupFilePath(linTarget)).toBe(join(linHome, '.bashrc'));
+
+    rmSync(linHome, { recursive: true, force: true });
   });
 });

@@ -210,3 +210,32 @@ describe('newStagedDependencies', () => {
     expect(newStagedDependencies(repo)).toEqual([]);
   });
 });
+
+describe('the hook command is correct per platform', () => {
+  // On Windows the agents run hooks through cmd.exe, where $CLAUDE_PROJECT_DIR and $(...) do not
+  // expand and forward slashes and an extension-less binary do not resolve. The npx form works
+  // there, so init must emit it on win32 even when the package is installed locally.
+  function initWith(platform: NodeJS.Platform): string {
+    const original = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+    try {
+      mkdirSync(join(repo, 'node_modules', '.bin'), { recursive: true });
+      writeFileSync(join(repo, 'node_modules', '.bin', 'asen'), '', 'utf8');
+      runInit();
+      return readFileSync(join(repo, '.claude', 'settings.json'), 'utf8');
+    } finally {
+      Object.defineProperty(process, 'platform', original);
+    }
+  }
+
+  it('uses the npx form on Windows, not a POSIX variable', () => {
+    const settings = initWith('win32');
+    expect(settings).toContain('npx agentinel hook claude-code');
+    expect(settings).not.toContain('CLAUDE_PROJECT_DIR');
+  });
+
+  it('uses the fast local path with CLAUDE_PROJECT_DIR on macOS and Linux', () => {
+    const settings = initWith('linux');
+    expect(settings).toContain('CLAUDE_PROJECT_DIR');
+  });
+});
