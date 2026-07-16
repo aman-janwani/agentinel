@@ -82,6 +82,13 @@ environment variables. So it cannot break `npm test`, a private registry, or a R
 way a man-in-the-middle proxy can. The malware list is matched locally and works offline. If the npm
 API is unreachable, a check is skipped with a note rather than blocking your work.
 
+## Platforms
+
+macOS and Linux are fully supported. Windows works too: the agent hooks and the git pre-commit hook
+run, and the optional shim installs as a PowerShell-friendly wrapper. Windows is written and covered
+by tests but has had less real-world use than macOS and Linux, so if something misbehaves there,
+please open an issue.
+
 ## Scope
 
 The npm registry only, which covers npm, pnpm, yarn, and bun, since they all install from it. Not a
