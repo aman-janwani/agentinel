@@ -4,6 +4,7 @@
   [![npm version](https://img.shields.io/npm/v/agentinel.svg?style=flat-square)](https://www.npmjs.com/package/agentinel)
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
   [![Node.js CI](https://img.shields.io/github/actions/workflow/status/aman-janwani/agentinel/publish.yml?style=flat-square)](https://github.com/aman-janwani/agentinel/actions)
+  [![Tested On](https://img.shields.io/badge/Tested_On-macOS_%7C_Linux_%7C_Windows-success?style=flat-square)](#)
 </div>
 
 <br />
@@ -34,6 +35,7 @@ Every other tool in this space guards your terminal. **Agentinel guards your age
 - **Known Malware:** Bundles a local OSV database of 216,000+ confirmed malicious packages.
 - **Zero False Positives on Popular Packages:** Tested against the top 100 npm packages.
 - **Heuristic Scanning:** Flags npm takedowns, packages under 30 days old with < 1k downloads (slopsquatting), publisher drift, and non-existent hallucinated names.
+- **Cross-Platform Compatibility:** Fully tested and natively supported across macOS, Linux, and Windows.
 - **Fails Open:** Designed so that if it crashes or can't reach the registry, it fails open. It will never permanently wedge your terminal or block your work.
 
 ---
