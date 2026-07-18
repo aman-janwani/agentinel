@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+
 import { join } from 'node:path';
 import { repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { hooksDirectory } from './init.js';
@@ -34,11 +34,11 @@ function unwireClaudeCodeHook(repoRoot: string): void {
 
   const preToolUse = hooks.PreToolUse as unknown[];
   hooks.PreToolUse = preToolUse.filter((hook) => !JSON.stringify(hook).includes(HOOK_SUBCOMMAND));
-  
+
   if ((hooks.PreToolUse as unknown[]).length === 0) {
     delete hooks.PreToolUse;
   }
-  
+
   if (Object.keys(hooks).length === 0) {
     delete file.hooks;
   }
