@@ -32,9 +32,10 @@ function unwireClaudeCodeHook(repoRoot: string): void {
   const hooks = asRecord(file.hooks);
   if (!hooks || !Array.isArray(hooks.PreToolUse)) return;
 
-  hooks.PreToolUse = hooks.PreToolUse.filter((hook) => !JSON.stringify(hook).includes(HOOK_SUBCOMMAND));
+  const preToolUse = hooks.PreToolUse as unknown[];
+  hooks.PreToolUse = preToolUse.filter((hook) => !JSON.stringify(hook).includes(HOOK_SUBCOMMAND));
   
-  if (hooks.PreToolUse.length === 0) {
+  if ((hooks.PreToolUse as unknown[]).length === 0) {
     delete hooks.PreToolUse;
   }
   
@@ -56,7 +57,8 @@ function unwireCodexHook(repoRoot: string): void {
   const hooks = asRecord(file.hooks);
   if (!hooks || !Array.isArray(hooks.PreToolUse)) return;
 
-  hooks.PreToolUse = hooks.PreToolUse.filter((hook) => !JSON.stringify(hook).includes('hook codex'));
+  const preToolUse = hooks.PreToolUse as unknown[];
+  hooks.PreToolUse = preToolUse.filter((hook) => !JSON.stringify(hook).includes('hook codex'));
 
   writeJson(path, file);
   console.log('removed Codex hook');
@@ -72,7 +74,8 @@ function unwireCopilotHook(repoRoot: string): void {
   const hooks = asRecord(file.hooks);
   if (!hooks || !Array.isArray(hooks.preToolUse)) return;
 
-  hooks.preToolUse = hooks.preToolUse.filter((hook) => !JSON.stringify(hook).includes('hook copilot'));
+  const preToolUse = hooks.preToolUse as unknown[];
+  hooks.preToolUse = preToolUse.filter((hook) => !JSON.stringify(hook).includes('hook copilot'));
 
   writeJson(path, file);
   console.log('removed Copilot hook');
@@ -88,7 +91,8 @@ function unwireGeminiHook(repoRoot: string): void {
   const hooks = asRecord(file.hooks);
   if (!hooks || !Array.isArray(hooks.BeforeTool)) return;
 
-  hooks.BeforeTool = hooks.BeforeTool.filter((hook) => !JSON.stringify(hook).includes('hook gemini'));
+  const beforeTool = hooks.BeforeTool as unknown[];
+  hooks.BeforeTool = beforeTool.filter((hook) => !JSON.stringify(hook).includes('hook gemini'));
 
   writeJson(path, file);
   console.log('removed Gemini hook');
