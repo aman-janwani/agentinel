@@ -28,8 +28,12 @@ function readConfig(): { mode: string; allow: { name: string; reason: string }[]
 }
 
 describe('loadConfig', () => {
-  it('defaults to warn mode with an empty allowlist when there is no config', () => {
-    expect(loadConfig(dir)).toEqual({ mode: 'warn', allow: [] });
+  it('defaults to warn mode with the CLI tool allowlisted when there is no config', () => {
+    const config = loadConfig(dir);
+    expect(config.mode).toBe('warn');
+    expect(config.allow).toHaveLength(2);
+    expect(config.allow[0]?.name).toBe('asen');
+    expect(config.allow[1]?.name).toBe('agentinel');
   });
 
   it('says so loudly when the config is not valid JSON, rather than ignoring it', () => {
@@ -41,7 +45,10 @@ describe('loadConfig', () => {
   it('falls back to defaults for fields it does not recognise', () => {
     const config = parseConfig({ mode: 'nonsense', allow: [{ noName: true }, 'junk'] });
 
-    expect(config).toEqual({ mode: 'warn', allow: [] });
+    expect(config.mode).toBe('warn');
+    expect(config.allow).toHaveLength(2);
+    expect(config.allow[0]?.name).toBe('asen');
+    expect(config.allow[1]?.name).toBe('agentinel');
   });
 
   it('says so when the mode is unknown, rather than quietly not blocking', () => {
@@ -95,16 +102,16 @@ describe('runAllow', () => {
     expect(runAllow('my-pkg', 'published by me')).toBe(0);
 
     const config = readConfig();
-    expect(config.allow).toHaveLength(1);
-    expect(config.allow[0]!.name).toBe('my-pkg');
-    expect(config.allow[0]!.reason).toBe('published by me');
+    expect(config.allow).toHaveLength(3);
+    expect(config.allow[2]!.name).toBe('my-pkg');
+    expect(config.allow[2]!.reason).toBe('published by me');
   });
 
   it('does not add the same package twice', () => {
     runAllow('my-pkg', 'first');
     runAllow('my-pkg', 'second');
 
-    expect(readConfig().allow).toHaveLength(1);
+    expect(readConfig().allow).toHaveLength(3);
   });
 
   it('keeps the existing mode when adding to the allowlist', () => {

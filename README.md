@@ -121,17 +121,31 @@ How do we stack up against traditional commercial security scanners?
 
 ---
 
-## ⚙️ Configuration (Warn vs. Block)
+## ⚙️ Modes: warn vs strict
 
-By default, Agentinel runs in **Warn Mode**. It alerts you (and the agent) but gets out of the way. 
-To strictly block bad packages, change your `.agentinel.json` file to strict mode:
+Agentinel supports two operating modes, controlled by the `mode` field. You can switch between them using `npx asen mode <warn|strict>`.
 
+### warn (default)
+Agentinel surfaces a warning in the agent output but does not block the install. The agent decides whether to proceed.
+
+`.agentinel.json`
 ```json
 {
-  "mode": "strict",
-  "allowlist": {}
+  "mode": "warn"
 }
 ```
+*Best for teams migrating to Agentinel gradually or using agents in read-heavy workflows.*
+
+### strict
+Agentinel hard-blocks the install and returns an error payload to the agent. The install never reaches npm.
+
+`.agentinel.json`
+```json
+{
+  "mode": "strict"
+}
+```
+*Recommended for production repos, CI pipelines, and any project with autonomous agentic access.*
 
 ---
 
@@ -139,31 +153,40 @@ To strictly block bad packages, change your `.agentinel.json` file to strict mod
 
 Here are all the commands you can run via `npx asen <command>`:
 
-### `npx asen init`
+### `npx asen init [--shim]`
 Wires up agent hooks and git hooks in the current repo.
 ```bash
 $ npx asen init
-✅ Wired up pre-commit git hook.
-✅ Wired up Claude Code PreToolUse hook.
+wrote .agentinel.json
+registered the Claude Code PreToolUse hook in .claude/settings.json
+installed the git pre-commit hook in .git/hooks
+
+agentinel is set up. New npm packages will be checked before they land.
+Default mode is warn. Set "mode": "strict" in .agentinel.json to block instead.
 ```
 
-### `npx asen init --shim`
-Wires up hooks AND installs the global PATH shim for human terminal protection.
+When used with `--shim`, it wires up hooks AND installs the global PATH shim for human terminal protection.
 ```bash
 $ npx asen init --shim
-✅ Shim installed. Native terminal npm commands are now guarded.
-✅ Wired up pre-commit git hook.
+wrote .agentinel.json
+registered the Claude Code PreToolUse hook in .claude/settings.json
+installed the git pre-commit hook in .git/hooks
+wrote shims for npm, npx, pnpm, yarn, bun in /Users/user/.agentinel/bin
+added the shims to PATH in /Users/user/.zshrc
+Mode is warn, so a risky package typed at the terminal will be reported, not blocked.
+Open a new terminal, or run \`asen unshim\` to undo this.
+
+agentinel is set up. New npm packages will be checked before they land.
+Default mode is warn. Set "mode": "strict" in .agentinel.json to block instead.
 ```
 
-### `npx asen check`
+### `npx asen check [pkg...]`
 Scans the currently staged dependencies in your lockfile. Exits non-zero if flagged (great for CI/CD pipelines).
 ```bash
 $ npx asen check
-Scanning staged dependencies...
-✅ All 142 staged packages passed security checks.
+checked 142 package(s), nothing suspicious
 ```
 
-### `npx asen check <package-name>`
 Scans a specific package instantly without installing it.
 ```bash
 $ npx asen check react-router-v7-fake
@@ -171,18 +194,26 @@ $ npx asen check react-router-v7-fake
 This matches the profile of a slopsquatting or malicious package.
 ```
 
-### `npx asen allow <package-name> --reason "why"`
+### `npx asen allow <pkg> --reason "..."`
 Adds a package to the allowlist in `.agentinel.json` with a required reason. This provides an audited trail for your team.
 ```bash
 $ npx asen allow my-internal-pkg --reason "Internal company package not on public npm"
-✅ Added my-internal-pkg to .agentinel.json allowlist.
+allowlisted my-internal-pkg in .agentinel.json
+```
+
+### `npx asen mode <warn|strict>`
+Switches Agentinel's operating mode in the `.agentinel.json` file.
+```bash
+$ npx asen mode strict
+set mode to strict in .agentinel.json
 ```
 
 ### `npx asen unshim`
 Removes the global PATH shim.
 ```bash
 $ npx asen unshim
-✅ Shim removed. Normal npm path restored.
+removed /Users/user/.agentinel/bin
+removed the PATH line from /Users/user/.zshrc
 ```
 
 ---

@@ -2,6 +2,7 @@ import { positionals, readFlag } from '../src/cli/args.js';
 import { runAllow } from '../src/commands/allow.js';
 import { runCheck } from '../src/commands/check.js';
 import { runInit } from '../src/commands/init.js';
+import { runMode } from '../src/commands/mode.js';
 import { removeShim, runCheckCommand } from '../src/commands/shim.js';
 import { isAgentKind, runAgentHook } from '../src/hooks/agents.js';
 import { runClaudeCodeHook } from '../src/hooks/claude-code.js';
@@ -13,6 +14,7 @@ const USAGE = `asen, a guard for AI coding agent workflows
   asen init [--shim]                 set up the hooks and config in this repo
   asen check [pkg...]                check staged dependencies, or specific packages
   asen allow <pkg> --reason "..."    allowlist a flagged package, with a logged reason
+  asen mode <warn|strict>            switch Agentinel's operating mode
   asen unshim                        remove the PATH shims that --shim installed
 `;
 
@@ -28,6 +30,9 @@ async function main(argv: string[]): Promise<number> {
 
     case 'allow':
       return runAllow(positionals(rest)[0], readFlag(rest, '--reason'));
+
+    case 'mode':
+      return runMode(positionals(rest)[0]);
 
     case 'unshim':
       return removeShim();
