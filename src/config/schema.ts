@@ -3,7 +3,21 @@ import type { Config } from '../types.js';
 export const CONFIG_FILENAME = '.agentinel.json';
 
 export function defaultConfig(): Config {
-  return { mode: 'warn', allow: [] };
+  return {
+    mode: 'warn',
+    allow: [
+      {
+        name: 'asen',
+        reason: 'Agentinel CLI tool',
+        date: new Date().toISOString().substring(0, 10),
+      },
+      {
+        name: 'agentinel',
+        reason: 'Agentinel package',
+        date: new Date().toISOString().substring(0, 10),
+      },
+    ],
+  };
 }
 
 /**
