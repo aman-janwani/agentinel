@@ -4,17 +4,33 @@ import { runCheck } from '../src/commands/check.js';
 import { runInit } from '../src/commands/init.js';
 import { runMode } from '../src/commands/mode.js';
 import { removeShim, runCheckCommand } from '../src/commands/shim.js';
+import { runUninstall } from '../src/commands/uninstall.js';
 import { isAgentKind, runAgentHook } from '../src/hooks/agents.js';
 import { runClaudeCodeHook } from '../src/hooks/claude-code.js';
 import { runPreCommitHook } from '../src/hooks/pre-commit.js';
 import { ConfigError } from '../src/config/load.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+function getVersion(): string {
+  try {
+    const file = fileURLToPath(import.meta.url);
+    const pkgPath = join(dirname(file), '..', 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    return typeof pkg.version === 'string' ? pkg.version : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
 
 const USAGE = `asen, a guard for AI coding agent workflows
 
-  asen init [--shim]                 set up the hooks and config in this repo
+  asen init [--no-shim]              set up the hooks and config in this repo
   asen check [pkg...]                check staged dependencies, or specific packages
   asen allow <pkg> --reason "..."    allowlist a flagged package, with a logged reason
   asen mode <warn|strict>            switch Agentinel's operating mode
+  asen uninstall                     remove all agent hooks from this repository
   asen unshim                        remove the PATH shims that --shim installed
 `;
 
@@ -23,7 +39,7 @@ async function main(argv: string[]): Promise<number> {
 
   switch (command) {
     case 'init':
-      return runInit({ shim: rest.includes('--shim') });
+      return runInit({ shim: !rest.includes('--no-shim') });
 
     case 'check':
       return runCheck(positionals(rest));
@@ -33,6 +49,9 @@ async function main(argv: string[]): Promise<number> {
 
     case 'mode':
       return runMode(positionals(rest)[0]);
+
+    case 'uninstall':
+      return runUninstall();
 
     case 'unshim':
       return removeShim();
@@ -44,6 +63,11 @@ async function main(argv: string[]): Promise<number> {
     // What the PATH shims call, with the whole command line as one argument.
     case 'check-command':
       return runCheckCommand(rest[0]);
+
+    case '--version':
+    case '-v':
+      console.log(`agentinel v${getVersion()}`);
+      return 0;
 
     case '--help':
     case '-h':

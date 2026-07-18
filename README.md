@@ -77,10 +77,10 @@ The AI reads this, realizes the package is fake or malicious, and intelligently 
 
 What about installs that never go through an agent? (e.g., You typing `npm install` manually). 
 
-Agentinel provides an opt-in **PATH shim**. 
+Agentinel provides an opt-in **PATH shim**. By default, running `npx asen init` installs this shim automatically.
 
 ```sh
-npx asen init --shim
+npx asen init
 ```
 
 This puts a tiny, fail-open wrapper script earlier in your `PATH`. When you type `npm install`, the shim checks the package first. If it's safe, the real `npm` command runs instantly. 
@@ -153,21 +153,10 @@ Agentinel hard-blocks the install and returns an error payload to the agent. The
 
 Here are all the commands you can run via `npx asen <command>`:
 
-### `npx asen init [--shim]`
-Wires up agent hooks and git hooks in the current repo.
+### `npx asen init [--no-shim]`
+Wires up agent hooks and git hooks in the current repo, and installs the global PATH shim for human terminal protection.
 ```bash
 $ npx asen init
-wrote .agentinel.json
-registered the Claude Code PreToolUse hook in .claude/settings.json
-installed the git pre-commit hook in .git/hooks
-
-agentinel is set up. New npm packages will be checked before they land.
-Default mode is warn. Set "mode": "strict" in .agentinel.json to block instead.
-```
-
-When used with `--shim`, it wires up hooks AND installs the global PATH shim for human terminal protection.
-```bash
-$ npx asen init --shim
 wrote .agentinel.json
 registered the Claude Code PreToolUse hook in .claude/settings.json
 installed the git pre-commit hook in .git/hooks
@@ -175,6 +164,17 @@ wrote shims for npm, npx, pnpm, yarn, bun in /Users/user/.agentinel/bin
 added the shims to PATH in /Users/user/.zshrc
 Mode is warn, so a risky package typed at the terminal will be reported, not blocked.
 Open a new terminal, or run \`asen unshim\` to undo this.
+
+agentinel is set up. New npm packages will be checked before they land.
+Default mode is warn. Set "mode": "strict" in .agentinel.json to block instead.
+```
+
+When used with `--no-shim`, it wires up hooks but skips installing the global PATH shim.
+```bash
+$ npx asen init --no-shim
+wrote .agentinel.json
+registered the Claude Code PreToolUse hook in .claude/settings.json
+installed the git pre-commit hook in .git/hooks
 
 agentinel is set up. New npm packages will be checked before they land.
 Default mode is warn. Set "mode": "strict" in .agentinel.json to block instead.
@@ -206,6 +206,13 @@ Switches Agentinel's operating mode in the `.agentinel.json` file.
 ```bash
 $ npx asen mode strict
 set mode to strict in .agentinel.json
+```
+
+### `npx asen uninstall`
+Completely removes all Agentinel hooks from your repository config files (`.claude`, `.gemini`, `.github`, etc.) and removes global shims.
+```bash
+$ npx asen uninstall
+agentinel has been completely uninstalled from this repository.
 ```
 
 ### `npx asen unshim`
