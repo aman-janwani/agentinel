@@ -42,11 +42,17 @@ Every other tool in this space guards your terminal. **Agentinel guards your age
 
 ## 🚀 Installation
 
-Install it as a dev-dependency in your repository:
+For the best experience across all your projects and to use the short `asen` alias, install Agentinel globally:
 
 ```sh
+npm install -g agentinel
+asen init
+```
+
+Alternatively, you can install it as a dev-dependency per-project:
+```sh
 npm install --save-dev agentinel
-npx asen init
+npx agentinel init
 ```
 *(No account, no server, no complex configuration.)*
 
