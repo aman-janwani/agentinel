@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { configPath, saveConfig } from '../config/load.js';
+import { drawSuccessBox, GREEN, RESET, CYAN, DIM } from '../output/format.js';
 import { defaultConfig } from '../config/schema.js';
 import { isWindows } from '../platform.js';
 import { installShim, type ShimTarget } from './shim.js';
@@ -23,28 +24,33 @@ export interface InitOptions {
 
 export function runInit(options: InitOptions = {}): number {
   const repoRoot = repoRootOrCwd();
+  const messages: string[] = [];
 
-  writeConfig(repoRoot);
-  wireClaudeCodeHook(repoRoot, claudeCodeCommand(repoRoot));
-  wireOtherAgents(repoRoot, agentHookCommand(repoRoot));
-  wirePreCommitHook(repoRoot, gitHookCommand(repoRoot));
+  writeConfig(repoRoot, messages);
+  wireClaudeCodeHook(repoRoot, claudeCodeCommand(repoRoot), messages);
+  wireOtherAgents(repoRoot, agentHookCommand(repoRoot), messages);
+  wirePreCommitHook(repoRoot, gitHookCommand(repoRoot), messages);
 
   if (options.shim) {
-    installShim(repoRoot, options.shimTarget);
+    installShim(repoRoot, options.shimTarget, messages);
   }
 
-  console.log('\nagentinel is set up. New npm packages will be checked before they land.');
-  console.log(
-    'Default mode is strict. Set "mode": "warn" in .agentinel.json to only warn instead.',
-  );
+  // Format success banner
+  const successBox = drawSuccessBox('agentinel setup complete', [
+    'New npm packages will be checked before they land.',
+    '',
+    ...messages.map((m) => `✔ ${m}`),
+    '',
+    `Default mode is ${GREEN}strict${RESET}. Set "mode": "warn" in .agentinel.json to only warn instead.`,
+  ]);
 
-  // The Claude Code hook runs on every Bash call, and resolving through npx each time costs about
-  // three quarters of a second. Installing it in the repo removes that. It is the difference
-  // between a tool people keep and one they rip out because the agent started feeling slow.
+  console.log(`\n${successBox}`);
+
   if (!hasLocalInstall(repoRoot)) {
-    console.log('\nThe hook runs on every command, and going through npx each time is slow.');
-    console.log('For faster hooks, add it to the repo and run init again:');
-    console.log('  npm install --save-dev agentinel && npx asen init');
+    console.log(`\n${CYAN}Performance Tip:${RESET}`);
+    console.log(`The hook runs on every command, and resolving through npx each time is slow.`);
+    console.log(`For faster hooks, add it to the repo and run init again:`);
+    console.log(`  ${DIM}npm install --save-dev agentinel && npx asen init${RESET}`);
   }
 
   return 0;
@@ -81,17 +87,17 @@ function gitHookCommand(repoRoot: string): string {
   return hasLocalInstall(repoRoot) ? './node_modules/.bin/asen' : 'npx agentinel';
 }
 
-function writeConfig(repoRoot: string): void {
+function writeConfig(repoRoot: string, messages: string[]): void {
   const path = configPath(repoRoot);
   if (existsSync(path)) {
-    console.log('.agentinel.json already exists, left alone');
+    messages.push('.agentinel.json already exists, left alone');
     return;
   }
   saveConfig(repoRoot, defaultConfig());
-  console.log('wrote .agentinel.json');
+  messages.push('wrote .agentinel.json');
 }
 
-function wireClaudeCodeHook(repoRoot: string, command: string): void {
+function wireClaudeCodeHook(repoRoot: string, command: string, messages: string[]): void {
   const dir = join(repoRoot, '.claude');
   const path = join(dir, 'settings.json');
 
@@ -103,7 +109,7 @@ function wireClaudeCodeHook(repoRoot: string, command: string): void {
         settings = parsed as Record<string, unknown>;
       }
     } catch {
-      console.log('.claude/settings.json is not valid JSON, skipping the Claude Code hook');
+      messages.push('.claude/settings.json is not valid JSON, skipping the Claude Code hook');
       return;
     }
   }
@@ -112,7 +118,7 @@ function wireClaudeCodeHook(repoRoot: string, command: string): void {
   const preToolUse = Array.isArray(hooks.PreToolUse) ? (hooks.PreToolUse as unknown[]) : [];
 
   if (alreadyRegistered(preToolUse)) {
-    console.log('Claude Code hook already registered, left alone');
+    messages.push('Claude Code hook already registered, left alone');
     return;
   }
 
@@ -126,7 +132,7 @@ function wireClaudeCodeHook(repoRoot: string, command: string): void {
 
   mkdirSync(dir, { recursive: true });
   writeFileSync(path, JSON.stringify(settings, null, 2) + '\n', 'utf8');
-  console.log('registered the Claude Code PreToolUse hook in .claude/settings.json');
+  messages.push('registered the Claude Code PreToolUse hook in .claude/settings.json');
 }
 
 /**
@@ -152,15 +158,15 @@ function agentHookCommand(repoRoot: string): string {
  * directory. Writing a .codex, a .gemini and a .github/hooks into every repo that runs init would
  * be litter, and litter in someone's repo is how a tool gets removed.
  */
-function wireOtherAgents(repoRoot: string, command: string): void {
+function wireOtherAgents(repoRoot: string, command: string, messages: string[]): void {
   if (uses(repoRoot, '.codex')) {
-    wireCodexHook(repoRoot, command);
+    wireCodexHook(repoRoot, command, messages);
   }
   if (uses(repoRoot, '.copilot') || existsSync(join(repoRoot, '.github', 'hooks'))) {
-    wireCopilotHook(repoRoot, command);
+    wireCopilotHook(repoRoot, command, messages);
   }
   if (uses(repoRoot, '.gemini')) {
-    wireGeminiHook(repoRoot, command);
+    wireGeminiHook(repoRoot, command, messages);
   }
 }
 
@@ -172,11 +178,11 @@ function uses(repoRoot: string, dir: string): boolean {
  * Codex: .codex/hooks.json, the same PascalCase PreToolUse shape Claude Code uses.
  * https://learn.chatgpt.com/docs/hooks
  */
-function wireCodexHook(repoRoot: string, command: string): void {
+function wireCodexHook(repoRoot: string, command: string, messages: string[]): void {
   const path = join(repoRoot, '.codex', 'hooks.json');
   const file = readJson(path);
   if (file === null) {
-    console.log('.codex/hooks.json is not valid JSON, skipping the Codex hook');
+    messages.push('.codex/hooks.json is not valid JSON, skipping the Codex hook');
     return;
   }
 
@@ -184,7 +190,7 @@ function wireCodexHook(repoRoot: string, command: string): void {
   const preToolUse = Array.isArray(hooks.PreToolUse) ? (hooks.PreToolUse as unknown[]) : [];
 
   if (registers(preToolUse, 'codex')) {
-    console.log('Codex hook already registered, left alone');
+    messages.push('Codex hook already registered, left alone');
     return;
   }
 
@@ -196,18 +202,18 @@ function wireCodexHook(repoRoot: string, command: string): void {
   file.hooks = hooks;
 
   writeJson(path, file);
-  console.log('registered the Codex PreToolUse hook in .codex/hooks.json');
+  messages.push('registered the Codex PreToolUse hook in .codex/hooks.json');
 }
 
 /**
  * Copilot: its own file under .github/hooks, which is auto-discovered. camelCase preToolUse, and
  * the shell command goes in `bash`. https://docs.github.com/en/copilot/reference/hooks-configuration
  */
-function wireCopilotHook(repoRoot: string, command: string): void {
+function wireCopilotHook(repoRoot: string, command: string, messages: string[]): void {
   const path = join(repoRoot, '.github', 'hooks', 'agentinel.json');
   const file = readJson(path);
   if (file === null) {
-    console.log('.github/hooks/agentinel.json is not valid JSON, skipping the Copilot hook');
+    messages.push('.github/hooks/agentinel.json is not valid JSON, skipping the Copilot hook');
     return;
   }
 
@@ -215,7 +221,7 @@ function wireCopilotHook(repoRoot: string, command: string): void {
   const preToolUse = Array.isArray(hooks.preToolUse) ? (hooks.preToolUse as unknown[]) : [];
 
   if (registers(preToolUse, 'copilot')) {
-    console.log('Copilot hook already registered, left alone');
+    messages.push('Copilot hook already registered, left alone');
     return;
   }
 
@@ -225,18 +231,18 @@ function wireCopilotHook(repoRoot: string, command: string): void {
   file.hooks = hooks;
 
   writeJson(path, file);
-  console.log('registered the Copilot preToolUse hook in .github/hooks/agentinel.json');
+  messages.push('registered the Copilot preToolUse hook in .github/hooks/agentinel.json');
 }
 
 /**
  * Gemini: settings.json, event BeforeTool, and the shell tool is called run_shell_command.
  * https://geminicli.com/docs/hooks/reference/
  */
-function wireGeminiHook(repoRoot: string, command: string): void {
+function wireGeminiHook(repoRoot: string, command: string, messages: string[]): void {
   const path = join(repoRoot, '.gemini', 'settings.json');
   const file = readJson(path);
   if (file === null) {
-    console.log('.gemini/settings.json is not valid JSON, skipping the Gemini hook');
+    messages.push('.gemini/settings.json is not valid JSON, skipping the Gemini hook');
     return;
   }
 
@@ -244,7 +250,7 @@ function wireGeminiHook(repoRoot: string, command: string): void {
   const beforeTool = Array.isArray(hooks.BeforeTool) ? (hooks.BeforeTool as unknown[]) : [];
 
   if (registers(beforeTool, 'gemini')) {
-    console.log('Gemini hook already registered, left alone');
+    messages.push('Gemini hook already registered, left alone');
     return;
   }
 
@@ -256,7 +262,7 @@ function wireGeminiHook(repoRoot: string, command: string): void {
   file.hooks = hooks;
 
   writeJson(path, file);
-  console.log('registered the Gemini BeforeTool hook in .gemini/settings.json');
+  messages.push('registered the Gemini BeforeTool hook in .gemini/settings.json');
 }
 
 /** Reads a JSON object, treating a missing file as empty. Null means the file is there and broken. */
@@ -324,9 +330,9 @@ export function hooksDirectory(repoRoot: string): string {
   return join(repoRoot, '.git', 'hooks');
 }
 
-function wirePreCommitHook(repoRoot: string, command: string): void {
+function wirePreCommitHook(repoRoot: string, command: string, messages: string[]): void {
   if (!existsSync(join(repoRoot, '.git'))) {
-    console.log('not a git repo, skipping the pre-commit hook');
+    messages.push('not a git repo, skipping the pre-commit hook');
     return;
   }
 
@@ -337,20 +343,20 @@ function wirePreCommitHook(repoRoot: string, command: string): void {
   if (existsSync(path)) {
     const existing = readFileSync(path, 'utf8');
     if (existing.includes(HOOK_MARKER)) {
-      console.log('pre-commit hook already installed, left alone');
+      messages.push('pre-commit hook already installed, left alone');
       return;
     }
     // Someone else owns this hook (husky, lint-staged, a hand written one). Overwriting it would
     // silently break their setup, so tell them what to add instead.
-    console.log('a pre-commit hook already exists, not overwriting it');
-    console.log(`add this line to ${path}:\n  ${command} hook pre-commit`);
+    messages.push('a pre-commit hook already exists, not overwriting it');
+    messages.push(`add this line to ${path}:\n  ${command} hook pre-commit`);
     return;
   }
 
   mkdirSync(dir, { recursive: true });
   writeFileSync(path, script, 'utf8');
   chmodSync(path, 0o755);
-  console.log(`installed the git pre-commit hook in ${dir}`);
+  messages.push(`installed the git pre-commit hook in ${dir}`);
 }
 
 /**

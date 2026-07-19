@@ -7,10 +7,13 @@
 import type { Reason, Verdict } from '../types.js';
 import { isConfirmed } from '../types.js';
 
-const RESET = '[0m';
-const YELLOW = '[33m';
-const RED = '[31m';
-const DIM = '[2m';
+export const RESET = '\x1b[0m';
+export const YELLOW = '\x1b[33m';
+export const RED = '\x1b[31m';
+export const GREEN = '\x1b[32m';
+export const CYAN = '\x1b[36m';
+export const DIM = '\x1b[2m';
+export const BOLD = '\x1b[1m';
 
 /** Wide enough to read, narrow enough to survive a split terminal pane. */
 const WIDTH = 46;
@@ -132,6 +135,52 @@ function draw(b: Banner, paint: (code: string, text: string) => string): string 
 
   const box = [top, ...rows, bottom].join('\n');
   return b.action ? `${box}\n  ${paint(DIM, b.action)}` : box;
+}
+
+export function drawSuccessBox(
+  heading: string,
+  body: string[],
+  stream: Stream = process.stdout,
+): string {
+  const inner = WIDTH - 4;
+  const text = inner - 1;
+  const color = supportsColor(stream) ? GREEN : '';
+  const paint = (code: string, str: string): string =>
+    supportsColor(stream) ? `${code}${str}${RESET}` : str;
+
+  const top = paint(color, `╭─ ${paint(BOLD, TITLE)} ${'─'.repeat(WIDTH - TITLE.length - 5)}╮`);
+  const bottom = paint(color, `╰${'─'.repeat(WIDTH - 2)}╯`);
+
+  const rows: string[] = [];
+  const push = (line: string, styled?: string) => {
+    const edge = paint(color, '│');
+    // Remove ANSI sequences for length calculation
+    const plainLine = (styled ?? line).replace(/\x1b\[[0-9;]*m/g, '');
+    const pad = ' '.repeat(Math.max(0, inner - plainLine.length));
+    rows.push(`${edge}  ${styled ?? line}${pad}${edge}`);
+  };
+
+  push(heading, paint(BOLD, heading));
+  push('');
+
+  for (const line of body) {
+    if (line === '') {
+      push('');
+      continue;
+    }
+
+    // We only support simple wrapping for lines without ANSI codes inside the body for now,
+    // but the init command will format things carefully.
+    if (line.includes('\x1b')) {
+      push(line, line);
+    } else {
+      for (const wrapped of wrap(line, text)) {
+        push(wrapped);
+      }
+    }
+  }
+
+  return [top, ...rows, bottom].join('\n');
 }
 
 function wrap(line: string, width: number): string[] {
