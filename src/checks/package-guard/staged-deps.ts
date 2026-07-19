@@ -46,10 +46,12 @@ export function newWorkingTreeDependencies(repoRoot: string): string[] {
 
   if (paths === null) {
     // No HEAD (initial commit not made yet). Check all tracked and untracked files.
-    paths = changedManifestPaths(repoRoot, ['ls-files', '-z', '-c', '-o', '--exclude-standard']) ?? [];
+    paths =
+      changedManifestPaths(repoRoot, ['ls-files', '-z', '-c', '-o', '--exclude-standard']) ?? [];
   } else {
     // Add untracked files which `git diff HEAD` ignores.
-    const untracked = changedManifestPaths(repoRoot, ['ls-files', '-z', '-o', '--exclude-standard']) ?? [];
+    const untracked =
+      changedManifestPaths(repoRoot, ['ls-files', '-z', '-o', '--exclude-standard']) ?? [];
     paths = Array.from(new Set([...paths, ...untracked]));
   }
 
