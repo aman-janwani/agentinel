@@ -20,7 +20,7 @@ export function newStagedDependencies(repoRoot: string): string[] {
     '--name-only',
     '-z',
     '--diff-filter=ACMR',
-  ])) {
+  ]) ?? []) {
     const staged = gitJson(repoRoot, `:${path}`);
     if (!staged) continue;
 
@@ -36,13 +36,24 @@ export function newStagedDependencies(repoRoot: string): string[] {
 export function newWorkingTreeDependencies(repoRoot: string): string[] {
   const names: string[] = [];
 
-  for (const path of changedManifestPaths(repoRoot, [
+  let paths = changedManifestPaths(repoRoot, [
     'diff',
     'HEAD',
     '--name-only',
     '-z',
     '--diff-filter=ACMR',
-  ])) {
+  ]);
+
+  if (paths === null) {
+    // No HEAD (initial commit not made yet). Check all tracked and untracked files.
+    paths = changedManifestPaths(repoRoot, ['ls-files', '-z', '-c', '-o', '--exclude-standard']) ?? [];
+  } else {
+    // Add untracked files which `git diff HEAD` ignores.
+    const untracked = changedManifestPaths(repoRoot, ['ls-files', '-z', '-o', '--exclude-standard']) ?? [];
+    paths = Array.from(new Set([...paths, ...untracked]));
+  }
+
+  for (const path of paths) {
     let onDisk: Record<string, unknown> | null = null;
     try {
       onDisk = JSON.parse(readFileSync(join(repoRoot, path), 'utf8'));
@@ -68,10 +79,10 @@ export function newWorkingTreeDependencies(repoRoot: string): string[] {
  * later git command on that path fails. The dependency then goes unchecked, silently. NUL
  * separated output is given raw.
  */
-function changedManifestPaths(repoRoot: string, gitArgs: string[]): string[] {
+function changedManifestPaths(repoRoot: string, gitArgs: string[]): string[] | null {
   const output = git(repoRoot, gitArgs);
   if (output === null) {
-    return [];
+    return null;
   }
 
   return output
