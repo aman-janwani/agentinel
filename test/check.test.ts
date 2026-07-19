@@ -69,7 +69,7 @@ describe('asen check', () => {
       join(repo, 'package-lock.json'),
       JSON.stringify({
         lockfileVersion: 3,
-        packages: { '': { name: 'root' }, 'node_modules/hidden-malware': { version: '1.0.0' } },
+        packages: { '': { name: 'root' } },
       }),
       'utf8',
     );

@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, lstatSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies'] as const;
 
@@ -58,7 +58,14 @@ export function newWorkingTreeDependencies(repoRoot: string): string[] {
   for (const path of paths) {
     let onDisk: Record<string, unknown> | null = null;
     try {
-      onDisk = JSON.parse(readFileSync(join(repoRoot, path), 'utf8'));
+      const fullPath = resolve(join(repoRoot, path));
+      if (!fullPath.startsWith(resolve(repoRoot) + sep) && fullPath !== resolve(repoRoot)) {
+        continue;
+      }
+      if (lstatSync(fullPath).isSymbolicLink()) {
+        continue;
+      }
+      onDisk = JSON.parse(readFileSync(fullPath, 'utf8'));
     } catch {
       continue;
     }

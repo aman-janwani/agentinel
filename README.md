@@ -157,8 +157,8 @@ Agentinel hard-blocks the install and returns an error payload to the agent. The
 
 ## 🧰 Command Reference
 
-You can run Agentinel using `npx asen <command>` or `npx agentinel <command>`. 
-If installed globally (`npm install -g agentinel`), you can just type `asen <command>` or `agentinel <command>`.
+You can run Agentinel using `npx agentinel <command>`. 
+If you have installed `agentinel` globally (`npm install -g agentinel`) or locally in your project, you can use the shorter alias: `npx asen <command>` (or just `asen <command>` if global).
 
 Here are all the commands:
 
