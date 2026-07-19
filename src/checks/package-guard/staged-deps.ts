@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies'] as const;
 
@@ -12,17 +14,34 @@ const DEP_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies'] a
 export function newStagedDependencies(repoRoot: string): string[] {
   const names: string[] = [];
 
-  for (const path of stagedManifestPaths(repoRoot)) {
+  for (const path of changedManifestPaths(repoRoot, ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR'])) {
     const staged = gitJson(repoRoot, `:${path}`);
-    if (!staged) {
-      continue;
-    }
+    if (!staged) continue;
 
     const before = collectNames(gitJson(repoRoot, `HEAD:${path}`) ?? {});
     for (const name of collectNames(staged)) {
-      if (!before.has(name) && !names.includes(name)) {
-        names.push(name);
-      }
+      if (!before.has(name) && !names.includes(name)) names.push(name);
+    }
+  }
+
+  return names;
+}
+
+export function newWorkingTreeDependencies(repoRoot: string): string[] {
+  const names: string[] = [];
+
+  for (const path of changedManifestPaths(repoRoot, ['diff', 'HEAD', '--name-only', '-z', '--diff-filter=ACMR'])) {
+    let onDisk: Record<string, unknown> | null = null;
+    try {
+      onDisk = JSON.parse(readFileSync(join(repoRoot, path), 'utf8'));
+    } catch {
+      continue;
+    }
+    if (!onDisk) continue;
+
+    const before = collectNames(gitJson(repoRoot, `HEAD:${path}`) ?? {});
+    for (const name of collectNames(onDisk)) {
+      if (!before.has(name) && !names.includes(name)) names.push(name);
     }
   }
 
@@ -37,8 +56,8 @@ export function newStagedDependencies(repoRoot: string): string[] {
  * later git command on that path fails. The dependency then goes unchecked, silently. NUL
  * separated output is given raw.
  */
-function stagedManifestPaths(repoRoot: string): string[] {
-  const output = git(repoRoot, ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR']);
+function changedManifestPaths(repoRoot: string, gitArgs: string[]): string[] {
+  const output = git(repoRoot, gitArgs);
   if (output === null) {
     return [];
   }

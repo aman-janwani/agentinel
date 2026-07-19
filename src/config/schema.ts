@@ -4,7 +4,7 @@ export const CONFIG_FILENAME = '.agentinel.json';
 
 export function defaultConfig(): Config {
   return {
-    mode: 'warn',
+    mode: 'strict',
     allow: [
       {
         name: 'asen',
@@ -43,7 +43,7 @@ export function parseConfig(raw: unknown, warn: (message: string) => void = () =
   } else if (source.mode !== undefined) {
     warn(
       `unknown mode ${JSON.stringify(source.mode)} in ${CONFIG_FILENAME}, ` +
-        'falling back to "warn". Valid modes are "warn" and "strict".',
+        'falling back to "strict". Valid modes are "warn" and "strict".',
     );
   }
 

@@ -3,6 +3,7 @@ import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { packagesInLockfile } from '../src/checks/package-guard/lockfile.js';
 import { setKnownMalwareForTests } from '../src/checks/package-guard/malware.js';
+import * as configLoad from '../src/config/load.js';
 import { runClaudeCodeHook } from '../src/hooks/claude-code.js';
 
 // The hook resolves the real dependency tree with npm and scans it against the bundled malware
@@ -10,7 +11,10 @@ import { runClaudeCodeHook } from '../src/hooks/claude-code.js';
 // npm resolves that day and whether any of react's hundreds of transitive versions happen to be in
 // the 216k name list. Pin the list to empty by default: the tree scan then finds nothing, and each
 // test opts back in with the exact malware it means to test.
-beforeEach(() => setKnownMalwareForTests({}));
+beforeEach(() => {
+  setKnownMalwareForTests({});
+  vi.spyOn(configLoad, 'loadConfig').mockReturnValue({ mode: 'warn', allow: [] });
+});
 
 /**
  * Drives the hook exactly as Claude Code does: payload on stdin, and whatever lands on stdout is

@@ -28,9 +28,9 @@ function readConfig(): { mode: string; allow: { name: string; reason: string }[]
 }
 
 describe('loadConfig', () => {
-  it('defaults to warn mode with the CLI tool allowlisted when there is no config', () => {
+  it('defaults to strict mode with the CLI tool allowlisted when there is no config', () => {
     const config = loadConfig(dir);
-    expect(config.mode).toBe('warn');
+    expect(config.mode).toBe('strict');
     expect(config.allow).toHaveLength(2);
     expect(config.allow[0]?.name).toBe('asen');
     expect(config.allow[1]?.name).toBe('agentinel');
@@ -45,7 +45,7 @@ describe('loadConfig', () => {
   it('falls back to defaults for fields it does not recognise', () => {
     const config = parseConfig({ mode: 'nonsense', allow: [{ noName: true }, 'junk'] });
 
-    expect(config.mode).toBe('warn');
+    expect(config.mode).toBe('strict');
     expect(config.allow).toHaveLength(2);
     expect(config.allow[0]?.name).toBe('asen');
     expect(config.allow[1]?.name).toBe('agentinel');
@@ -57,7 +57,7 @@ describe('loadConfig', () => {
     const warnings: string[] = [];
     const config = parseConfig({ mode: 'block' }, (message) => warnings.push(message));
 
-    expect(config.mode).toBe('warn');
+    expect(config.mode).toBe('strict');
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain('block');
     expect(warnings[0]).toContain('strict');

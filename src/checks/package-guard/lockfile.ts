@@ -21,6 +21,10 @@ export function packagesInLockfile(repoRoot: string): Resolved[] {
   return packagesInLockText(readFileOrNull(path));
 }
 
+export function workingTreeLockfilePackages(repoRoot: string): Resolved[] {
+  return packagesInLockfile(repoRoot);
+}
+
 /**
  * The packages in the *staged* lockfile, the one about to be committed.
  *
