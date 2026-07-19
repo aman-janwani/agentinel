@@ -144,11 +144,12 @@ export function drawSuccessBox(
 ): string {
   const inner = WIDTH - 4;
   const text = inner - 1;
-  const color = supportsColor(stream) ? GREEN : '';
-  const paint = (code: string, str: string): string =>
-    supportsColor(stream) ? `${code}${str}${RESET}` : str;
+  const hasColor = supportsColor(stream);
+  const color = hasColor ? GREEN : '';
+  const paint = (code: string, str: string): string => (hasColor ? `${code}${str}${RESET}` : str);
 
-  const top = paint(color, `╭─ ${paint(BOLD, TITLE)} ${'─'.repeat(WIDTH - TITLE.length - 5)}╮`);
+  const titlePart = hasColor ? `${BOLD}${TITLE}${RESET}${color}` : TITLE;
+  const top = paint(color, `╭─ ${titlePart} ${'─'.repeat(WIDTH - TITLE.length - 5)}╮`);
   const bottom = paint(color, `╰${'─'.repeat(WIDTH - 2)}╯`);
 
   const rows: string[] = [];

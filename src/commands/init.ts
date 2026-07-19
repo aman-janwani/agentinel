@@ -41,7 +41,8 @@ export function runInit(options: InitOptions = {}): number {
     '',
     ...messages.map((m) => `✔ ${m}`),
     '',
-    `Default mode is ${GREEN}strict${RESET}. Set "mode": "warn" in .agentinel.json to only warn instead.`,
+    `Default mode is ${GREEN}strict${RESET}.`,
+    'Set "mode": "warn" in .agentinel.json to only warn instead.',
   ]);
 
   console.log(`\n${successBox}`);
