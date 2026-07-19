@@ -34,7 +34,9 @@ export function runInit(options: InitOptions = {}): number {
   }
 
   console.log('\nagentinel is set up. New npm packages will be checked before they land.');
-  console.log('Default mode is warn. Set "mode": "strict" in .agentinel.json to block instead.');
+  console.log(
+    'Default mode is strict. Set "mode": "warn" in .agentinel.json to only warn instead.',
+  );
 
   // The Claude Code hook runs on every Bash call, and resolving through npx each time costs about
   // three quarters of a second. Installing it in the repo removes that. It is the difference

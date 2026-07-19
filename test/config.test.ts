@@ -28,9 +28,9 @@ function readConfig(): { mode: string; allow: { name: string; reason: string }[]
 }
 
 describe('loadConfig', () => {
-  it('defaults to warn mode with the CLI tool allowlisted when there is no config', () => {
+  it('defaults to strict mode with the CLI tool allowlisted when there is no config', () => {
     const config = loadConfig(dir);
-    expect(config.mode).toBe('warn');
+    expect(config.mode).toBe('strict');
     expect(config.allow).toHaveLength(2);
     expect(config.allow[0]?.name).toBe('asen');
     expect(config.allow[1]?.name).toBe('agentinel');
@@ -45,19 +45,19 @@ describe('loadConfig', () => {
   it('falls back to defaults for fields it does not recognise', () => {
     const config = parseConfig({ mode: 'nonsense', allow: [{ noName: true }, 'junk'] });
 
-    expect(config.mode).toBe('warn');
+    expect(config.mode).toBe('strict');
     expect(config.allow).toHaveLength(2);
     expect(config.allow[0]?.name).toBe('asen');
     expect(config.allow[1]?.name).toBe('agentinel');
   });
 
   it('says so when the mode is unknown, rather than quietly not blocking', () => {
-    // "block" is the obvious thing to guess, and falling back to warn in silence leaves someone
-    // believing installs are being stopped when they are not.
+    // "block" is the obvious thing to guess, and falling back to strict in silence leaves someone
+    // confused about whether their config was read.
     const warnings: string[] = [];
     const config = parseConfig({ mode: 'block' }, (message) => warnings.push(message));
 
-    expect(config.mode).toBe('warn');
+    expect(config.mode).toBe('strict');
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain('block');
     expect(warnings[0]).toContain('strict');

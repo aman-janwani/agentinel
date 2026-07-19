@@ -42,11 +42,17 @@ Every other tool in this space guards your terminal. **Agentinel guards your age
 
 ## 🚀 Installation
 
-Install it as a dev-dependency in your repository:
+For the best experience across all your projects and to use the short `asen` alias, install Agentinel globally:
 
 ```sh
+npm install -g agentinel
+asen init
+```
+
+Alternatively, you can install it as a dev-dependency per-project:
+```sh
 npm install --save-dev agentinel
-npx asen init
+npx agentinel init
 ```
 *(No account, no server, no complex configuration.)*
 
@@ -151,7 +157,10 @@ Agentinel hard-blocks the install and returns an error payload to the agent. The
 
 ## 🧰 Command Reference
 
-Here are all the commands you can run via `npx asen <command>`:
+You can run Agentinel using `npx agentinel <command>`. 
+If you have installed `agentinel` globally (`npm install -g agentinel`) or locally in your project, you can use the shorter alias: `npx asen <command>` (or just `asen <command>` if global).
+
+Here are all the commands:
 
 ### `npx asen init [--no-shim]`
 Wires up agent hooks and git hooks in the current repo, and installs the global PATH shim for human terminal protection.
@@ -162,11 +171,11 @@ registered the Claude Code PreToolUse hook in .claude/settings.json
 installed the git pre-commit hook in .git/hooks
 wrote shims for npm, npx, pnpm, yarn, bun in /Users/user/.agentinel/bin
 added the shims to PATH in /Users/user/.zshrc
-Mode is warn, so a risky package typed at the terminal will be reported, not blocked.
-Open a new terminal, or run \`asen unshim\` to undo this.
+Mode is strict, so a risky package typed at the terminal will be blocked.
+Open a new terminal, or run `asen unshim` to undo this.
 
 agentinel is set up. New npm packages will be checked before they land.
-Default mode is warn. Set "mode": "strict" in .agentinel.json to block instead.
+Default mode is strict. Set "mode": "warn" in .agentinel.json to only warn instead.
 ```
 
 When used with `--no-shim`, it wires up hooks but skips installing the global PATH shim.
@@ -177,11 +186,11 @@ registered the Claude Code PreToolUse hook in .claude/settings.json
 installed the git pre-commit hook in .git/hooks
 
 agentinel is set up. New npm packages will be checked before they land.
-Default mode is warn. Set "mode": "strict" in .agentinel.json to block instead.
+Default mode is strict. Set "mode": "warn" in .agentinel.json to only warn instead.
 ```
 
 ### `npx asen check [pkg...]`
-Scans the currently staged dependencies in your lockfile. Exits non-zero if flagged (great for CI/CD pipelines).
+Scans the unstaged (or newly added) dependencies in your working tree, including the lockfile. Exits non-zero if flagged. (The Git pre-commit hook uses a strictly staged version of this check).
 ```bash
 $ npx asen check
 checked 142 package(s), nothing suspicious

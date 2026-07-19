@@ -14,6 +14,8 @@ beforeEach(() => {
   cwd = process.cwd();
   process.chdir(repo);
   execFileSync('git', ['init'], { stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.name', 'Test'], { stdio: 'ignore' });
 
   setKnownMalwareForTests({});
   vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -62,17 +64,49 @@ describe('asen check', () => {
     expect(await runCheck([])).toBe(0);
   });
 
-  it('scans the staged lockfile when no package is named', async () => {
+  it('scans the working tree lockfile when no package is named, even if unstaged', async () => {
     writeFileSync(
       join(repo, 'package-lock.json'),
       JSON.stringify({
         lockfileVersion: 3,
-        packages: { '': { name: 'root' }, 'node_modules/hidden-malware': { version: '1.0.0' } },
+        packages: { '': { name: 'root' } },
       }),
       'utf8',
     );
     setKnownMalwareForTests({ 'hidden-malware': ['1.0.0'] });
-    execFileSync('git', ['add', '-A'], { stdio: 'ignore' });
+    // We do NOT run `git add` here, simulating a fresh uncommitted `npm install`.
+    // We only need the file to be tracked or exist. Since package-lock.json might not be tracked,
+    // we commit it first clean, then modify it unstaged.
+    execFileSync('git', ['add', 'package-lock.json'], { stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'clean lockfile'], { stdio: 'ignore' });
+
+    // Now modify it (unstaged)
+    writeFileSync(
+      join(repo, 'package-lock.json'),
+      JSON.stringify({
+        lockfileVersion: 3,
+        packages: { '': { name: 'root' }, 'node_modules/unstaged-malware': { version: '1.0.0' } },
+      }),
+      'utf8',
+    );
+    setKnownMalwareForTests({ 'unstaged-malware': ['1.0.0'] });
+
+    expect(await runCheck([])).toBe(1);
+  });
+
+  it('scans unstaged dependencies in the working tree package.json', async () => {
+    // Commit a clean package.json
+    writeFileSync(join(repo, 'package.json'), JSON.stringify({ dependencies: {} }), 'utf8');
+    execFileSync('git', ['add', 'package.json'], { stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'clean pkg'], { stdio: 'ignore' });
+
+    // Modify unstaged
+    writeFileSync(
+      join(repo, 'package.json'),
+      JSON.stringify({ dependencies: { 'unstaged-evil': '1.0.0' } }),
+      'utf8',
+    );
+    setKnownMalwareForTests({ 'unstaged-evil': [] });
 
     expect(await runCheck([])).toBe(1);
   });

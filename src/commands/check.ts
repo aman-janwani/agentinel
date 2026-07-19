@@ -1,15 +1,15 @@
 import { scan } from '../checks/package-guard/evaluate.js';
-import { stagedLockfilePackages } from '../checks/package-guard/lockfile.js';
+import { workingTreeLockfilePackages } from '../checks/package-guard/lockfile.js';
 import type { Resolved } from '../checks/package-guard/resolve.js';
-import { newStagedDependencies, repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
+import { newWorkingTreeDependencies, repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { loadConfig } from '../config/load.js';
 import { formatVerdict } from '../output/format.js';
 import { isRisky } from '../types.js';
 
 /**
  * Manual scan. With package names it checks exactly those, thoroughly. With no arguments it checks
- * what a commit would introduce: the newly named dependencies, plus the whole staged lockfile
- * against the malware list. Either way it reports rather than blocking, so it is safe to run any
+ * what is in the uncommitted working tree: the newly named dependencies, plus the whole working
+ * lockfile against the malware list. Either way it reports rather than blocking, so it is safe to run any
  * time, and it exits non-zero on a finding so it can gate a CI job.
  */
 export async function runCheck(names: string[]): Promise<number> {
@@ -23,8 +23,8 @@ export async function runCheck(names: string[]): Promise<number> {
     named = names;
     tree = [];
   } else {
-    named = newStagedDependencies(repoRoot);
-    tree = stagedLockfilePackages(repoRoot).filter((entry) => !named.includes(entry.name));
+    named = newWorkingTreeDependencies(repoRoot);
+    tree = workingTreeLockfilePackages(repoRoot).filter((entry) => !named.includes(entry.name));
   }
 
   if (named.length === 0 && tree.length === 0) {

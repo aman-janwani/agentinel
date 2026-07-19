@@ -4,7 +4,7 @@ export const CONFIG_FILENAME = '.agentinel.json';
 
 export function defaultConfig(): Config {
   return {
-    mode: 'warn',
+    mode: 'strict',
     allow: [
       {
         name: 'asen',
@@ -28,8 +28,7 @@ export function defaultConfig(): Config {
  * is reported by the loader.
  *
  * `warn` is called for anything that was ignored. A mode of "block", which is a natural thing to
- * guess, would otherwise fall back to warn in silence and leave someone believing installs were
- * being blocked when they were not.
+ * guess, would otherwise fall back to strict in silence, causing confusion.
  */
 export function parseConfig(raw: unknown, warn: (message: string) => void = () => {}): Config {
   const config = defaultConfig();
@@ -43,7 +42,7 @@ export function parseConfig(raw: unknown, warn: (message: string) => void = () =
   } else if (source.mode !== undefined) {
     warn(
       `unknown mode ${JSON.stringify(source.mode)} in ${CONFIG_FILENAME}, ` +
-        'falling back to "warn". Valid modes are "warn" and "strict".',
+        'falling back to "strict". Valid modes are "warn" and "strict".',
     );
   }
 

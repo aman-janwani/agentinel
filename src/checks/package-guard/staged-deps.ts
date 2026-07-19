@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync, lstatSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies'] as const;
 
@@ -12,17 +14,66 @@ const DEP_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies'] a
 export function newStagedDependencies(repoRoot: string): string[] {
   const names: string[] = [];
 
-  for (const path of stagedManifestPaths(repoRoot)) {
+  for (const path of changedManifestPaths(repoRoot, [
+    'diff',
+    '--cached',
+    '--name-only',
+    '-z',
+    '--diff-filter=ACMR',
+  ]) ?? []) {
     const staged = gitJson(repoRoot, `:${path}`);
-    if (!staged) {
-      continue;
-    }
+    if (!staged) continue;
 
     const before = collectNames(gitJson(repoRoot, `HEAD:${path}`) ?? {});
     for (const name of collectNames(staged)) {
-      if (!before.has(name) && !names.includes(name)) {
-        names.push(name);
+      if (!before.has(name) && !names.includes(name)) names.push(name);
+    }
+  }
+
+  return names;
+}
+
+export function newWorkingTreeDependencies(repoRoot: string): string[] {
+  const names: string[] = [];
+
+  let paths = changedManifestPaths(repoRoot, [
+    'diff',
+    'HEAD',
+    '--name-only',
+    '-z',
+    '--diff-filter=ACMR',
+  ]);
+
+  if (paths === null) {
+    // No HEAD (initial commit not made yet). Check all tracked and untracked files.
+    paths =
+      changedManifestPaths(repoRoot, ['ls-files', '-z', '-c', '-o', '--exclude-standard']) ?? [];
+  } else {
+    // Add untracked files which `git diff HEAD` ignores.
+    const untracked =
+      changedManifestPaths(repoRoot, ['ls-files', '-z', '-o', '--exclude-standard']) ?? [];
+    paths = Array.from(new Set([...paths, ...untracked]));
+  }
+
+  for (const path of paths) {
+    let onDisk: Record<string, unknown> | null = null;
+    try {
+      const fullPath = resolve(join(repoRoot, path));
+      if (!fullPath.startsWith(resolve(repoRoot) + sep) && fullPath !== resolve(repoRoot)) {
+        continue;
       }
+      if (lstatSync(fullPath).isSymbolicLink()) {
+        continue;
+      }
+      onDisk = JSON.parse(readFileSync(fullPath, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (!onDisk) continue;
+
+    const before = collectNames(gitJson(repoRoot, `HEAD:${path}`) ?? {});
+    for (const name of collectNames(onDisk)) {
+      if (!before.has(name) && !names.includes(name)) names.push(name);
     }
   }
 
@@ -37,10 +88,10 @@ export function newStagedDependencies(repoRoot: string): string[] {
  * later git command on that path fails. The dependency then goes unchecked, silently. NUL
  * separated output is given raw.
  */
-function stagedManifestPaths(repoRoot: string): string[] {
-  const output = git(repoRoot, ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR']);
+function changedManifestPaths(repoRoot: string, gitArgs: string[]): string[] | null {
+  const output = git(repoRoot, gitArgs);
   if (output === null) {
-    return [];
+    return null;
   }
 
   return output

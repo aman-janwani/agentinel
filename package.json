@@ -1,6 +1,6 @@
 {
   "name": "agentinel",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Catches AI hallucinated npm packages before an agent installs them",
   "license": "MIT",
   "author": "Aman Janwani",
@@ -14,7 +14,8 @@
   },
   "homepage": "https://github.com/aman-janwani/agentinel#readme",
   "bin": {
-    "asen": "./dist/asen.js"
+    "asen": "./dist/asen.js",
+    "agentinel": "./dist/asen.js"
   },
   "files": [
     "dist",
