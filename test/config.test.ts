@@ -52,8 +52,8 @@ describe('loadConfig', () => {
   });
 
   it('says so when the mode is unknown, rather than quietly not blocking', () => {
-    // "block" is the obvious thing to guess, and falling back to warn in silence leaves someone
-    // believing installs are being stopped when they are not.
+    // "block" is the obvious thing to guess, and falling back to strict in silence leaves someone
+    // confused about whether their config was read.
     const warnings: string[] = [];
     const config = parseConfig({ mode: 'block' }, (message) => warnings.push(message));
 

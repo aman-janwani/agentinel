@@ -14,6 +14,8 @@ beforeEach(() => {
   cwd = process.cwd();
   process.chdir(repo);
   execFileSync('git', ['init'], { stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.name', 'Test'], { stdio: 'ignore' });
 
   setKnownMalwareForTests({});
   vi.spyOn(console, 'log').mockImplementation(() => {});

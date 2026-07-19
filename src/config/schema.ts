@@ -28,8 +28,7 @@ export function defaultConfig(): Config {
  * is reported by the loader.
  *
  * `warn` is called for anything that was ignored. A mode of "block", which is a natural thing to
- * guess, would otherwise fall back to warn in silence and leave someone believing installs were
- * being blocked when they were not.
+ * guess, would otherwise fall back to strict in silence, causing confusion.
  */
 export function parseConfig(raw: unknown, warn: (message: string) => void = () => {}): Config {
   const config = defaultConfig();
