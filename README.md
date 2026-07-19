@@ -89,7 +89,9 @@ Agentinel provides an opt-in **PATH shim**. By default, running `npx asen init` 
 npx asen init
 ```
 
-This puts a tiny, fail-open wrapper script earlier in your `PATH`. When you type `npm install`, the shim checks the package first. If it's safe, the real `npm` command runs instantly. 
+This puts a tiny, fail-open wrapper script earlier in your `PATH`. When you type `npm install <pkg>`, the shim checks the package first. If it's safe, the real `npm` command runs instantly. 
+
+As a bonus, if you just run a plain `npm install` with no arguments, the shim instantly checks your unstaged `package.json` for any newly added dependencies, ensuring that packages you pasted in are scanned before they resolve!
 
 **Terminal Example:**
 ```bash
@@ -166,16 +168,34 @@ Here are all the commands:
 Wires up agent hooks and git hooks in the current repo, and installs the global PATH shim for human terminal protection.
 ```bash
 $ npx asen init
-wrote .agentinel.json
-registered the Claude Code PreToolUse hook in .claude/settings.json
-installed the git pre-commit hook in .git/hooks
-wrote shims for npm, npx, pnpm, yarn, bun in /Users/user/.agentinel/bin
-added the shims to PATH in /Users/user/.zshrc
-Mode is strict, so a risky package typed at the terminal will be blocked.
-Open a new terminal, or run `asen unshim` to undo this.
 
-agentinel is set up. New npm packages will be checked before they land.
-Default mode is strict. Set "mode": "warn" in .agentinel.json to only warn instead.
+╭─ agentinel ──────────────────────────────╮
+│  agentinel setup complete                │
+│                                          │
+│  New npm packages will be checked before │
+│  they land.                              │
+│                                          │
+│  ✔ wrote .agentinel.json                 │
+│  ✔ registered the Claude Code PreToolUse │
+│  hook in .claude/settings.json           │
+│  ✔ installed the git pre-commit hook in  │
+│  .git/hooks                              │
+│  ✔ wrote shims for npm, npx, pnpm, yarn, │
+│  bun in /Users/user/.agentinel/bin       │
+│  ✔ added the shims to PATH in            │
+│  /Users/user/.zshrc                      │
+│  ✔ Open a new terminal, or run `asen     │
+│  unshim` to undo this.                   │
+│                                          │
+│  Default mode is strict. Set "mode":     │
+│  "warn" in .agentinel.json to only warn  │
+│  instead.                                │
+╰──────────────────────────────────────────╯
+
+Performance Tip:
+The hook runs on every command, and resolving through npx each time is slow.
+For faster hooks, add it to the repo and run init again:
+  npm install --save-dev agentinel && npx asen init
 ```
 
 When used with `--no-shim`, it wires up hooks but skips installing the global PATH shim.

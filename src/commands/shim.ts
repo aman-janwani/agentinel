@@ -21,7 +21,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { checkPackages } from '../checks/package-guard/evaluate.js';
 import { parseCommand } from '../checks/package-guard/parse-install.js';
-import { repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
+import { newWorkingTreeDependencies, repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { loadConfig } from '../config/load.js';
 import { denyReason, formatVerdict } from '../output/format.js';
 import { isRisky } from '../types.js';
@@ -87,7 +87,11 @@ export function startupFilePath(target: ShimTarget): string {
   return join(target.home, '.profile');
 }
 
-export function installShim(repoRoot: string, target: ShimTarget = currentTarget()): number {
+export function installShim(
+  repoRoot: string,
+  target: ShimTarget = currentTarget(),
+  messages: string[] = [],
+): number {
   const dir = shimDirectory(target.home);
   mkdirSync(dir, { recursive: true });
 
@@ -99,16 +103,10 @@ export function installShim(repoRoot: string, target: ShimTarget = currentTarget
     }
   }
 
-  console.log(`wrote shims for ${CLIENTS.join(', ')} in ${dir}`);
-  addPathLine(target);
+  messages.push(`wrote shims for ${CLIENTS.join(', ')} in ${dir}`);
+  addPathLine(target, messages);
 
-  const mode = loadConfig(repoRoot).mode;
-  console.log(
-    mode === 'strict'
-      ? 'Mode is strict, so a risky package typed at the terminal will be blocked.'
-      : 'Mode is warn, so a risky package typed at the terminal will be reported, not blocked.',
-  );
-  console.log('Open a new terminal, or run `asen unshim` to undo this.');
+  messages.push('Open a new terminal, or run `asen unshim` to undo this.');
 
   return 0;
 }
@@ -130,12 +128,12 @@ function pathLine(target: ShimTarget): string {
   return `export PATH="$HOME/.agentinel/bin:$PATH" ${RC_MARKER}\n`;
 }
 
-function addPathLine(target: ShimTarget): void {
+function addPathLine(target: ShimTarget, messages: string[]): void {
   const path = startupFilePath(target);
   const existing = existsSync(path) ? readFileSync(path, 'utf8') : '';
 
   if (existing.includes(RC_MARKER)) {
-    console.log(`${path} already puts the shims on PATH, left alone`);
+    messages.push(`${path} already puts the shims on PATH, left alone`);
     return;
   }
 
@@ -144,7 +142,7 @@ function addPathLine(target: ShimTarget): void {
 
   const separator = existing === '' || existing.endsWith('\n') ? '' : '\n';
   writeFileSync(path, `${existing}${separator}${pathLine(target)}`, 'utf8');
-  console.log(`added the shims to PATH in ${path}`);
+  messages.push(`added the shims to PATH in ${path}`);
 }
 
 function removePathLine(target: ShimTarget): void {
@@ -291,13 +289,17 @@ export async function runCheckCommand(command: string | undefined): Promise<numb
     return 0;
   }
 
-  const { installs, executes } = parseCommand(command);
+  const { installs, executes, lockfile } = parseCommand(command);
+  const repoRoot = repoRootOrCwd();
+
   const names = [...new Set([...installs, ...executes])];
   if (names.length === 0) {
-    return 0;
-  }
+    if (!lockfile) return 0;
 
-  const repoRoot = repoRootOrCwd();
+    const workingTree = newWorkingTreeDependencies(repoRoot);
+    if (workingTree.length === 0) return 0;
+    names.push(...workingTree);
+  }
   const config = loadConfig(repoRoot);
   const verdicts = await checkPackages(names, config);
 
