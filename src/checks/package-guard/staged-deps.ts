@@ -14,7 +14,13 @@ const DEP_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies'] a
 export function newStagedDependencies(repoRoot: string): string[] {
   const names: string[] = [];
 
-  for (const path of changedManifestPaths(repoRoot, ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR'])) {
+  for (const path of changedManifestPaths(repoRoot, [
+    'diff',
+    '--cached',
+    '--name-only',
+    '-z',
+    '--diff-filter=ACMR',
+  ])) {
     const staged = gitJson(repoRoot, `:${path}`);
     if (!staged) continue;
 
@@ -30,7 +36,13 @@ export function newStagedDependencies(repoRoot: string): string[] {
 export function newWorkingTreeDependencies(repoRoot: string): string[] {
   const names: string[] = [];
 
-  for (const path of changedManifestPaths(repoRoot, ['diff', 'HEAD', '--name-only', '-z', '--diff-filter=ACMR'])) {
+  for (const path of changedManifestPaths(repoRoot, [
+    'diff',
+    'HEAD',
+    '--name-only',
+    '-z',
+    '--diff-filter=ACMR',
+  ])) {
     let onDisk: Record<string, unknown> | null = null;
     try {
       onDisk = JSON.parse(readFileSync(join(repoRoot, path), 'utf8'));

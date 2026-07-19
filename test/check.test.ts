@@ -77,7 +77,7 @@ describe('asen check', () => {
     // we commit it first clean, then modify it unstaged.
     execFileSync('git', ['add', 'package-lock.json'], { stdio: 'ignore' });
     execFileSync('git', ['commit', '-m', 'clean lockfile'], { stdio: 'ignore' });
-    
+
     // Now modify it (unstaged)
     writeFileSync(
       join(repo, 'package-lock.json'),
