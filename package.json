@@ -1,6 +1,6 @@
 {
   "name": "agentinel",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Catches AI hallucinated npm packages before an agent installs them",
   "license": "MIT",
   "author": "Aman Janwani",
@@ -34,6 +34,9 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
     "build:malware": "node scripts/build-malware-list.mjs"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
   },
   "keywords": [
     "claude-code",
