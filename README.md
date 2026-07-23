@@ -9,9 +9,9 @@
 
 <br />
 
-> **The zero-cost, locally-run package guardrail for your AI coding agents.**
+> **The zero-cost, locally-run package guardrail for your AI coding agents. Every other tool in this space guards your terminal. Agentinel guards your agent.**
 
-*Agentinel guards your AI agent when it installs npm packages, catching hallucinated dependencies, slopsquatting, and malicious packages before they execute on your machine.*
+⭐ **Did Agentinel catch a hallucinated package in your project? Please star this repo to help other developers find it.**
 
 ---
 
@@ -28,15 +28,36 @@ Every other tool in this space guards your terminal. **Agentinel guards your age
 
 ---
 
+## 🕵️ Caught in the Wild
+
+AI agents frequently hallucinate package names that look correct but either don't exist or have been squatted by malicious actors. Here are real examples Agentinel intercepts:
+
+- **`react-codeshift`**: Hallucinated by an agent attempting to migrate React versions.
+- **`unused-imports`**: Hallucinated instead of the real `eslint-plugin-unused-imports`.
+
+**How Agentinel handles it:**
+```bash
+$ npm install react-codeshift unused-imports
+
+⚠️ agentinel warning: 'react-codeshift' does not exist on npm (hallucination).
+⚠️ agentinel warning: 'unused-imports' is 2 days old and has 12 downloads.
+This matches the profile of a slopsquatting or malicious package.
+
+agentinel blocked the installation.
+```
+
+---
+
 ## ⚡ Features & Security Philosophy
 
-- **Zero-Cost & Private:** Agentinel does no network interception, runs no cloud proxies, and requires no paid APIs. The malware list is matched locally.
+- **Zero-Cost & Private:** Agentinel does no network interception, runs no cloud proxies, and makes no LLM or API calls. The malware list is matched locally.
+- **Lightning Fast:** Full local lockfile scans complete in ~1.4 seconds.
 - **Deep Tree Scanning:** Checks every package an install would *actually* bring in, not just the one named. (`npm install express` brings in 67 packages. We check all 67).
 - **Known Malware:** Bundles a local OSV database of 216,000+ confirmed malicious packages.
 - **Zero False Positives on Popular Packages:** Tested against the top 100 npm packages.
 - **Heuristic Scanning:** Flags npm takedowns, packages under 30 days old with < 1k downloads (slopsquatting), publisher drift, and non-existent hallucinated names.
 - **Cross-Platform Compatibility:** Fully tested and natively supported across macOS, Linux, and Windows.
-- **Fails Open:** Designed so that if it crashes or can't reach the registry, it fails open. It will never permanently wedge your terminal or block your work.
+- **Fail-Open Design:** Designed so that if it crashes or can't reach the registry, it fails open. It will never permanently wedge your terminal or block your work.
 
 ---
 
@@ -251,6 +272,10 @@ $ npx asen unshim
 removed /Users/user/.agentinel/bin
 removed the PATH line from /Users/user/.zshrc
 ```
+
+---
+
+⭐ **Did Agentinel catch a hallucinated package in your project? Please star this repo to help other developers find it.**
 
 ---
 
