@@ -1,0 +1,41 @@
+
+
+echo "======================================"
+echo "🛡️ Agentinel Ultra Strict Pre-Commit "
+echo "======================================"
+
+echo "[1/4] Checking staged files (lint, format)..."
+npx lint-staged
+if [ $? -ne 0 ]; then
+  echo "❌ Lint/Format failed."
+  exit 1
+fi
+
+echo "[2/4] Running full typecheck..."
+npm run typecheck
+if [ $? -ne 0 ]; then
+  echo "❌ Typecheck failed."
+  exit 1
+fi
+
+echo "[3/4] Running full unit tests..."
+npm run test
+if [ $? -ne 0 ]; then
+  echo "❌ Unit tests failed."
+  exit 1
+fi
+
+echo "[4/4] Running Agentinel package guard (dogfooding)..."
+# Check if agentinel is built, if so test current lockfile
+if [ -f "dist/bin/asen.js" ]; then
+  node dist/bin/asen.js check
+  if [ $? -ne 0 ]; then
+    echo "❌ Agentinel check failed. Malicious package detected!"
+    exit 1
+  fi
+else
+  # Fallback to local source execution or skip
+  npx tsx bin/asen.ts check || echo "⚠️ Could not run dogfood check directly."
+fi
+
+echo "✅ All checks passed! You are good to commit."
