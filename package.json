@@ -2,7 +2,7 @@
   "name": "agentinel",
   "version": "1.0.8",
   "description": "Catches AI hallucinated npm packages before an agent installs them",
-  "license": "MIT",
+  "license": "AGPL-3.0",
   "author": "Aman Janwani",
   "type": "module",
   "repository": {
