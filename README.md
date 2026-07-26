@@ -2,7 +2,7 @@
   <img src="assets/banner.jpg" alt="Agentinel Banner" width="100%" />
 
   [![npm version](https://img.shields.io/npm/v/agentinel.svg?style=flat-square)](https://www.npmjs.com/package/agentinel)
-  [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+  [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg?style=flat-square)](LICENSE)
   [![Node.js CI](https://img.shields.io/github/actions/workflow/status/aman-janwani/agentinel/publish.yml?style=flat-square)](https://github.com/aman-janwani/agentinel/actions)
   [![Tested On](https://img.shields.io/badge/Tested_On-macOS_%7C_Linux_%7C_Windows-success?style=flat-square)](#)
 </div>
