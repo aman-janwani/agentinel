@@ -238,6 +238,33 @@ describe('downloadAndReplace()', () => {
     const tmpPath = join(agentinelDir(), 'malware-names.tmp.gz');
     expect(existsSync(tmpPath)).toBe(false);
   });
+
+  it('does not leave a .tmp file behind after validation fails (corrupt data)', async () => {
+    // Fetch succeeds but the data is garbage — validation should clean up any temp file.
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => Buffer.from('not gzip at all').buffer,
+    }));
+
+    await downloadAndReplace('https://fake-cdn/malware.gz');
+
+    const tmpPath = join(agentinelDir(), 'malware-names.tmp.gz');
+    expect(existsSync(tmpPath)).toBe(false);
+  });
+
+  it('returns ok:false gracefully when the response body is zero bytes', async () => {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => new ArrayBuffer(0),
+    }));
+
+    const result = await downloadAndReplace('https://fake-cdn/malware.gz');
+    expect(result.ok).toBe(false);
+    // Zero bytes is not valid GZIP — should surface the GZIP error.
+    expect((result as { ok: false; reason: string }).reason).toMatch(/not valid GZIP/);
+  });
 });
 
 describe('scheduleBackgroundRefresh()', () => {
