@@ -36,6 +36,18 @@ function buildSmallGzip(entryCount = 100): Buffer {
   return gzipSync(JSON.stringify(list));
 }
 
+// ─── Mock node:child_process so we can intercept spawn() calls ──────────────
+// vi.spyOn cannot redefine ESM namespace exports, so we use vi.hoisted + vi.mock.
+const mockChild = vi.hoisted(() => ({
+  unref: vi.fn(),
+}));
+const mockSpawn = vi.hoisted(() => vi.fn().mockReturnValue(mockChild));
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return { ...actual, spawn: mockSpawn };
+});
+
 // ─── Override HOME dir so tests never touch the real ~/.agentinel ──────────────
 let testHome: string;
 
@@ -52,6 +64,10 @@ beforeEach(() => {
   mkdirSync(testHome, { recursive: true });
   // Prevent background refresh from firing and polluting fetch mocks in tests.
   setUpdaterDisabledForTests(true);
+  // Reset the spawn mock between tests.
+  mockSpawn.mockClear();
+  mockChild.unref.mockClear();
+  mockSpawn.mockReturnValue(mockChild);
 });
 
 afterEach(() => {
@@ -138,6 +154,24 @@ describe('validateDownload()', () => {
   it('includes the actual entry count in the error message', () => {
     const small = buildSmallGzip(42);
     expect(() => validateDownload(small)).toThrow(/42 entries/);
+  });
+
+  it('throws when an entry value is not an array (tampered/malformed download)', () => {
+    // Build a list that passes the entry count but has a non-array value.
+    const list: Record<string, unknown> = {};
+    for (let i = 0; i < 200_001; i++) list[`pkg-${i}`] = ['1.0.0'];
+    list['bad-pkg'] = 'not-an-array'; // tampered
+    const buf = gzipSync(JSON.stringify(list));
+    expect(() => validateDownload(buf)).toThrow(/invalid entry/);
+    expect(() => validateDownload(buf)).toThrow(/bad-pkg/);
+  });
+
+  it('throws when an entry value is an array but contains non-strings', () => {
+    const list: Record<string, unknown> = {};
+    for (let i = 0; i < 200_001; i++) list[`pkg-${i}`] = ['1.0.0'];
+    list['bad-pkg'] = [1, 2, 3]; // numbers instead of version strings
+    const buf = gzipSync(JSON.stringify(list));
+    expect(() => validateDownload(buf)).toThrow(/invalid entry/);
   });
 });
 
@@ -268,58 +302,44 @@ describe('downloadAndReplace()', () => {
 });
 
 describe('scheduleBackgroundRefresh()', () => {
-  it('does nothing when the cache is fresh (no fetch call)', async () => {
+  it('does nothing when the cache is fresh (no child spawned)', async () => {
     // Write a fresh file so isCacheStale() returns false.
     mkdirSync(agentinelDir(), { recursive: true });
     writeFileSync(cachedListPath(), buildValidGzip());
 
-    // Re-enable the updater just for this test (it's disabled globally in beforeEach).
+    // Re-enable the updater just for this test.
     setUpdaterDisabledForTests(false);
+    scheduleBackgroundRefresh();
 
-    const fetchFn = vi.fn();
-    vi.stubGlobal('fetch', fetchFn);
-
-    scheduleBackgroundRefresh('https://fake-cdn/malware.gz');
-
-    // Give async microtasks a tick to settle.
+    // Give microtasks a tick.
     await new Promise<void>((resolve) => setTimeout(resolve, 20));
-
-    expect(fetchFn).not.toHaveBeenCalled();
+    expect(mockSpawn).not.toHaveBeenCalled();
   });
 
-  it('fires a fetch when the cache is stale, without blocking the caller', async () => {
-    // Re-enable the updater just for this test.
+  it('spawns a detached child when the cache is stale', () => {
+    // Re-enable the updater just for this test. No cached file → stale.
     setUpdaterDisabledForTests(false);
+    scheduleBackgroundRefresh();
 
-    // No file exists → stale.
-    let fetchCalled = false;
-    vi.stubGlobal('fetch', async () => {
-      fetchCalled = true;
-      // Return an error so the update itself fails gracefully, we only care that fetch was called.
-      return { ok: false, status: 503 };
-    });
+    // scheduleBackgroundRefresh is synchronous — spawn is called immediately.
+    expect(mockSpawn).toHaveBeenCalledOnce();
+    expect(mockChild.unref).toHaveBeenCalledOnce(); // must unref so parent can exit
 
-    scheduleBackgroundRefresh('https://fake-cdn/malware.gz');
-
-    // The function must return synchronously (fire-and-forget).
-    // We verify fetch was called asynchronously.
-    await new Promise<void>((resolve) => setTimeout(resolve, 50));
-    expect(fetchCalled).toBe(true);
+    // The command should use --input-type=module so it can import the ESM updater.
+    const [, args] = mockSpawn.mock.calls[0] as [string, string[], unknown];
+    expect(args).toContain('--input-type=module');
   });
 
-  it('swallows all errors — never throws even when fetch rejects', async () => {
-    // Re-enable the updater just for this test.
+  it('never throws even when spawn fails', () => {
     setUpdaterDisabledForTests(false);
-
-    vi.stubGlobal('fetch', async () => {
-      throw new Error('catastrophic network failure');
+    // Make spawn throw to simulate a broken Node env.
+    mockSpawn.mockImplementationOnce(() => {
+      throw new Error('spawn failed');
     });
 
-    // scheduleBackgroundRefresh must not throw synchronously or cause an unhandled rejection.
-    expect(() => scheduleBackgroundRefresh('https://fake-cdn/malware.gz')).not.toThrow();
-
-    // Give the async path time to settle without surfacing an error.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // scheduleBackgroundRefresh must swallow the error — a broken updater
+    // must never crash the CLI that is currently checking a package.
+    expect(() => scheduleBackgroundRefresh()).not.toThrow();
   });
 });
 

@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
+import { spawn } from 'node:child_process';
 
 /**
  * The URL where the GitHub Action pushes a freshly built malware list daily.
@@ -102,7 +103,8 @@ export function validateDownload(buffer: Buffer): Record<string, string[]> {
     throw new Error('Downloaded file parsed but is not a JSON object');
   }
 
-  const count = Object.keys(parsed as object).length;
+  const asObj = parsed as Record<string, unknown>;
+  const count = Object.keys(asObj).length;
   if (count < MIN_VALID_ENTRIES) {
     throw new Error(
       `Downloaded malware list is suspiciously small (${count} entries, expected >${MIN_VALID_ENTRIES}). ` +
@@ -110,7 +112,18 @@ export function validateDownload(buffer: Buffer): Record<string, string[]> {
     );
   }
 
-  return parsed as Record<string, string[]>;
+  // Validate that every value is an array of strings (not just any object).
+  // A malformed or tampered download that passes the count check would otherwise crash
+  // package checks at runtime when malware.ts calls .length or .includes on the value.
+  for (const [key, val] of Object.entries(asObj)) {
+    if (!Array.isArray(val) || (val as unknown[]).some((v) => typeof v !== 'string')) {
+      throw new Error(
+        `Downloaded malware list has an invalid entry for "${key}": expected string[], got ${JSON.stringify(val)}.`,
+      );
+    }
+  }
+
+  return asObj as Record<string, string[]>;
 }
 
 /**
@@ -153,9 +166,9 @@ export async function downloadAndReplace(
     validateDownload(buffer);
   } catch (err) {
     // Validation failed: corrupted download, suspiciously small list, etc.
-    // Clean up the partial temp file if it somehow exists, keep the old list.
+    // Best-effort delete any leftover tmp file so nothing is left behind.
     try {
-      if (existsSync(tmp)) writeFileSync(tmp, ''); // truncate so rename below never runs
+      if (existsSync(tmp)) rmSync(tmp, { force: true });
     } catch {
       // best effort
     }
@@ -168,6 +181,12 @@ export async function downloadAndReplace(
     await writeFile(tmp, buffer);
     renameSync(tmp, final);
   } catch (err) {
+    // Clean up the tmp file if the write or rename failed — never leave it behind.
+    try {
+      if (existsSync(tmp)) rmSync(tmp, { force: true });
+    } catch {
+      // best effort
+    }
     return { ok: false, reason: `Could not write to disk: ${String(err)}` };
   }
 
@@ -189,9 +208,31 @@ export function scheduleBackgroundRefresh(url?: string): void {
   if (disabledForTests) return;
   if (!isCacheStale()) return;
 
-  // We intentionally do not await this. The promise is fire-and-forget.
-  // The void keyword silences the "floating promise" lint rule here deliberately.
-  void downloadAndReplace(url).catch(() => {
-    // Already handled inside downloadAndReplace — this is just a safety net.
-  });
+  // Spawn a detached child process that does the download and exits.
+  // Using a detached + unref'd child means the main CLI process exits immediately
+  // after the current package check finishes — the update runs in the background
+  // without keeping the Node.js event loop alive. This is the same technique that
+  // package managers (npm, yarn) use for their own background update checks.
+  try {
+    const child = spawn(
+      process.execPath, // the same `node` binary that is running right now
+      [
+        '--input-type=module',
+        `--eval`,
+        [
+          `import { downloadAndReplace } from ${JSON.stringify(new URL('./updater.js', import.meta.url).href)};`,
+          `await downloadAndReplace(${url ? JSON.stringify(url) : ''}).catch(() => {});`,
+        ].join('\n'),
+      ],
+      {
+        detached: true,
+        stdio: 'ignore', // don't inherit stdin/stdout — this runs silently
+      },
+    );
+    // unref() lets the parent process exit without waiting for this child.
+    child.unref();
+  } catch {
+    // If spawn itself fails (e.g. corrupted Node install), swallow silently.
+    // A broken updater must never crash the current package check.
+  }
 }
