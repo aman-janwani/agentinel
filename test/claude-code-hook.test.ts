@@ -5,6 +5,7 @@ import { packagesInLockfile } from '../src/checks/package-guard/lockfile.js';
 import { setKnownMalwareForTests } from '../src/checks/package-guard/malware.js';
 import * as configLoad from '../src/config/load.js';
 import { runClaudeCodeHook } from '../src/hooks/claude-code.js';
+import { setUpdaterDisabledForTests } from '../src/updater.js';
 
 // The hook resolves the real dependency tree with npm and scans it against the bundled malware
 // list. Both are real, so a test that installs a real package like react is at the mercy of what
@@ -13,7 +14,14 @@ import { runClaudeCodeHook } from '../src/hooks/claude-code.js';
 // test opts back in with the exact malware it means to test.
 beforeEach(() => {
   setKnownMalwareForTests({});
+  setUpdaterDisabledForTests(true);
   vi.spyOn(configLoad, 'loadConfig').mockReturnValue({ mode: 'warn', allow: [] });
+});
+
+afterEach(() => {
+  setUpdaterDisabledForTests(false);
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 /**

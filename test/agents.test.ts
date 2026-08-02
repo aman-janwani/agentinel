@@ -6,6 +6,7 @@ import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runInit } from '../src/commands/init.js';
 import { runAgentHook, type AgentKind } from '../src/hooks/agents.js';
+import { setUpdaterDisabledForTests } from '../src/updater.js';
 
 /**
  * The payload each agent actually sends, verified against its docs. Getting a field name wrong here
@@ -65,7 +66,12 @@ function repoInMode(mode: 'warn' | 'strict'): string {
   return repo;
 }
 
+beforeEach(() => {
+  setUpdaterDisabledForTests(true);
+});
+
 afterEach(() => {
+  setUpdaterDisabledForTests(false);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -159,11 +165,15 @@ describe('strict mode, where the call is denied', () => {
 describe('staying out of the way', () => {
   const kinds: AgentKind[] = ['claude-code', 'codex', 'copilot', 'gemini'];
 
-  it.each(kinds)('says nothing to %s about an established package', async (kind) => {
-    stubNpm(50_000_000, 3000);
+  it.each(kinds)(
+    'says nothing to %s about an established package',
+    async (kind) => {
+      stubNpm(50_000_000, 3000);
 
-    expect(await runHook(kind, 'npm i react', repoInMode('warn'))).toBeNull();
-  });
+      expect(await runHook(kind, 'npm i react', repoInMode('warn'))).toBeNull();
+    },
+    15_000, // real npm API call per agent — 5s default is too tight in pre-commit environments
+  );
 
   it.each(kinds)('says nothing to %s for a command that is not an install', async (kind) => {
     stubNpm(4, 2);
