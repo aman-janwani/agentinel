@@ -325,9 +325,9 @@ describe('scheduleBackgroundRefresh()', () => {
     expect(mockSpawn).toHaveBeenCalledOnce();
     expect(mockChild.unref).toHaveBeenCalledOnce(); // must unref so parent can exit
 
-    // The command should use --input-type=module so it can import the ESM updater.
+    // The command should pass internal-refresh.
     const [, args] = mockSpawn.mock.calls[0] as [string, string[], unknown];
-    expect(args).toContain('--input-type=module');
+    expect(args).toContain('internal-refresh');
   });
 
   it('never throws even when spawn fails', () => {
