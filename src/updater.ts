@@ -58,16 +58,31 @@ export function cachedListPathIfExists(): string | null {
   return existsSync(p) ? p : null;
 }
 
+function lastFetchPath(): string {
+  return join(agentinelDir(), '.last-fetch');
+}
+
 /**
  * Returns true if the cached list on disk is older than STALE_AFTER_MS.
- * Returns true (treat as stale) if the file does not exist yet.
+ * We check a .last-fetch file rather than the cache file itself so we can track
+ * failed attempts (offline, CDN down) without corrupting the cache file.
  */
 export function isCacheStale(): boolean {
-  const p = cachedListPath();
-  if (!existsSync(p)) return true;
+  const ts = lastFetchPath();
+  if (!existsSync(ts)) {
+    // If there's no timestamp file but a cache file exists (e.g. from an older version),
+    // we fall back to checking the cache file's timestamp.
+    const p = cachedListPath();
+    if (!existsSync(p)) return true;
+    try {
+      return Date.now() - statSync(p).mtimeMs > STALE_AFTER_MS;
+    } catch {
+      return true;
+    }
+  }
+
   try {
-    const { mtimeMs } = statSync(p);
-    return Date.now() - mtimeMs > STALE_AFTER_MS;
+    return Date.now() - statSync(ts).mtimeMs > STALE_AFTER_MS;
   } catch {
     return true;
   }
@@ -208,27 +223,38 @@ export function scheduleBackgroundRefresh(url?: string): void {
   if (disabledForTests) return;
   if (!isCacheStale()) return;
 
+  // Immediately mark that we are attempting a fetch. This synchronously updates the
+  // timestamp so that if the user runs 5 npm installs concurrently, we don't spawn
+  // 5 background processes. It also ensures we back off for 24h if we are offline.
+  try {
+    const dir = agentinelDir();
+    mkdirSync(dir, { recursive: true });
+    const ts = lastFetchPath();
+    if (existsSync(ts)) {
+      const now = new Date();
+      // Use utimesSync to touch the file without altering its contents.
+      import('node:fs').then((fs) => fs.utimesSync(ts, now, now)).catch(() => {});
+    } else {
+      import('node:fs').then((fs) => fs.writeFileSync(ts, '')).catch(() => {});
+    }
+  } catch {
+    // best effort debounce
+  }
+
   // Spawn a detached child process that does the download and exits.
   // Using a detached + unref'd child means the main CLI process exits immediately
   // after the current package check finishes — the update runs in the background
   // without keeping the Node.js event loop alive. This is the same technique that
   // package managers (npm, yarn) use for their own background update checks.
   try {
-    const child = spawn(
-      process.execPath, // the same `node` binary that is running right now
-      [
-        '--input-type=module',
-        `--eval`,
-        [
-          `import { downloadAndReplace } from ${JSON.stringify(new URL('./updater.js', import.meta.url).href)};`,
-          `await downloadAndReplace(${url ? JSON.stringify(url) : ''}).catch(() => {});`,
-        ].join('\n'),
-      ],
-      {
-        detached: true,
-        stdio: 'ignore', // don't inherit stdin/stdout — this runs silently
-      },
-    );
+    const mainScript = process.argv[1];
+    if (!mainScript) return;
+
+    const child = spawn(process.execPath, [mainScript, 'internal-refresh', ...(url ? [url] : [])], {
+      detached: true,
+      stdio: 'ignore', // don't inherit stdin/stdout — this runs silently
+      windowsHide: true, // critical: prevents a blank terminal window popping up on Windows
+    });
     // unref() lets the parent process exit without waiting for this child.
     child.unref();
   } catch {
