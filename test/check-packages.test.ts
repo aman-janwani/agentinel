@@ -1,9 +1,15 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkPackages, needsRegistryLookup } from '../src/checks/package-guard/evaluate.js';
 import { defaultConfig } from '../src/config/schema.js';
 import type { Config } from '../src/types.js';
+import { setUpdaterDisabledForTests } from '../src/updater.js';
+
+beforeEach(() => {
+  setUpdaterDisabledForTests(true);
+});
 
 afterEach(() => {
+  setUpdaterDisabledForTests(false);
   vi.unstubAllGlobals();
 });
 
