@@ -1,6 +1,6 @@
 {
   "name": "agentinel",
-  "version": "1.0.9",
+  "version": "1.1.0",
   "description": "Catches AI hallucinated npm packages before an agent installs them",
   "license": "AGPL-3.0",
   "author": "Aman Janwani",
