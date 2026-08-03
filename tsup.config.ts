@@ -5,6 +5,5 @@ export default defineConfig({
   format: ['esm'],
   target: 'node18',
   clean: true,
-  splitting: false,
   banner: { js: '#!/usr/bin/env node' },
 });

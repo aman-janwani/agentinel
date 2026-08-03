@@ -214,13 +214,21 @@ export function scheduleBackgroundRefresh(url?: string): void {
   // without keeping the Node.js event loop alive. This is the same technique that
   // package managers (npm, yarn) use for their own background update checks.
   try {
-    const mainScript = process.argv[1];
-    if (!mainScript) return;
-
-    const child = spawn(process.execPath, [mainScript, 'internal-refresh', ...(url ? [url] : [])], {
-      detached: true,
-      stdio: 'ignore', // don't inherit stdin/stdout — this runs silently
-    });
+    const child = spawn(
+      process.execPath, // the same `node` binary that is running right now
+      [
+        '--input-type=module',
+        `--eval`,
+        [
+          `import { downloadAndReplace } from ${JSON.stringify(new URL('./updater.js', import.meta.url).href)};`,
+          `await downloadAndReplace(${url ? JSON.stringify(url) : ''}).catch(() => {});`,
+        ].join('\n'),
+      ],
+      {
+        detached: true,
+        stdio: 'ignore', // don't inherit stdin/stdout — this runs silently
+      },
+    );
     // unref() lets the parent process exit without waiting for this child.
     child.unref();
   } catch {

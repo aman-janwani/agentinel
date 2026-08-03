@@ -64,11 +64,6 @@ async function main(argv: string[]): Promise<number> {
     case 'check-command':
       return runCheckCommand(rest[0]);
 
-    // Hidden internal helper subcommand used for detached background malware list updates
-    case 'internal-refresh':
-      await (await import('../src/updater.js')).downloadAndReplace(rest[0]);
-      return 0;
-
     case '--version':
     case '-v':
       console.log(`agentinel v${getVersion()}`);
