@@ -1,8 +1,9 @@
 /**
  * Identifies which package registry a package belongs to.
  *
- * The malware list stores entries as "ecosystem/name" (e.g. "pypi/requests", "cargo/serde")
- * so a compromised PyPI name never collides with an npm name of the same string.
+ * To avoid collisions between ecosystems, the malware list keys PyPI and Cargo packages
+ * as "pypi/name" and "cargo/name". npm packages remain bare names (e.g. "chalk")
+ * for backward compatibility.
  */
 export type Ecosystem = 'npm' | 'pypi' | 'cargo';
 
@@ -19,7 +20,8 @@ export interface QualifiedPackage {
 }
 
 export function qualify(ecosystem: Ecosystem, name: string): QualifiedPackage {
-  return { ecosystem, name, key: `${ecosystem}/${name}` };
+  const key = ecosystem === 'npm' ? name : `${ecosystem}/${name}`;
+  return { ecosystem, name, key };
 }
 
 /**

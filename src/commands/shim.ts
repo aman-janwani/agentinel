@@ -304,21 +304,10 @@ export async function runCheckCommand(command: string | undefined): Promise<numb
   const repoRoot = repoRootOrCwd();
   const config = loadConfig(repoRoot);
 
-  // Detect ecosystem from the first token of the command.
-  const firstToken = command.trim().split(/\s+/)[0] ?? '';
-
-  // PyPI ecosystem
-  if (
-    firstToken === 'pip' ||
-    firstToken === 'pip3' ||
-    /^pip\d/.test(firstToken) ||
-    firstToken === 'python' ||
-    firstToken === 'python3' ||
-    /^python\d/.test(firstToken)
-  ) {
-    const names = parsePipCommand(command);
-    if (names.length === 0) return 0;
-    const verdicts = await checkPackagesForEcosystem('pypi', names, config);
+  // Detect ecosystem using the parsers (they handle chained commands properly)
+  const pipNames = parsePipCommand(command);
+  if (pipNames.length > 0) {
+    const verdicts = await checkPackagesForEcosystem('pypi', pipNames, config);
     for (const verdict of verdicts) {
       const message = formatVerdict(verdict, process.stderr);
       if (message) {
@@ -335,11 +324,9 @@ export async function runCheckCommand(command: string | undefined): Promise<numb
     return 0;
   }
 
-  // Cargo ecosystem
-  if (firstToken === 'cargo') {
-    const names = parseCargoCommand(command);
-    if (names.length === 0) return 0;
-    const verdicts = await checkPackagesForEcosystem('cargo', names, config);
+  const cargoNames = parseCargoCommand(command);
+  if (cargoNames.length > 0) {
+    const verdicts = await checkPackagesForEcosystem('cargo', cargoNames, config);
     for (const verdict of verdicts) {
       const message = formatVerdict(verdict, process.stderr);
       if (message) {
