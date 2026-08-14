@@ -276,3 +276,52 @@ export function scanForKnownMalware(tree: Resolved[], config: Config): Verdict[]
 
   return verdicts;
 }
+
+/**
+ * Full network check for a list of packages from a specific ecosystem (pypi or cargo).
+ * Uses the correct registry and download APIs for that ecosystem.
+ */
+export async function checkPackagesForEcosystem(
+  ecosystem: import('./ecosystem.js').Ecosystem,
+  names: string[],
+  config: Config,
+): Promise<Verdict[]> {
+  if (ecosystem === 'npm') {
+    return checkPackages(names, config);
+  }
+
+  const { fetchPypiRegistry } = await import('./registry-pypi.js');
+  const { fetchCargoRegistry } = await import('./registry-cargo.js');
+  const { fetchPypiDownloads, fetchCargoDownloads } = await import('./downloads-ecosystem.js');
+  const { isKnownMalwareForEcosystem } = await import('./malware.js');
+  const { normalisePypi } = await import('./ecosystem.js');
+
+  const now = new Date();
+  const verdicts: Verdict[] = [];
+
+  for (const rawName of names) {
+    const name = ecosystem === 'pypi' ? normalisePypi(rawName) : rawName;
+
+    // Check local malware list first — fast, offline, no network needed
+    if (isKnownMalwareForEcosystem(ecosystem, name, null)) {
+      verdicts.push({ kind: 'flagged', name, reasons: [{ kind: 'known-malware' }] });
+      continue;
+    }
+
+    const [registry, downloads] = await Promise.all([
+      ecosystem === 'pypi' ? fetchPypiRegistry(name) : fetchCargoRegistry(name),
+      ecosystem === 'pypi' ? fetchPypiDownloads(name) : fetchCargoDownloads(name),
+    ]);
+
+    // For version-specific malware check, use registry-reported latest version
+    const version = registry.kind === 'found' ? registry.facts.latestVersion : null;
+    if (isKnownMalwareForEcosystem(ecosystem, name, version)) {
+      verdicts.push({ kind: 'flagged', name, reasons: [{ kind: 'known-malware' }] });
+      continue;
+    }
+
+    verdicts.push(evaluate(name, registry, downloads, config, now));
+  }
+
+  return verdicts;
+}

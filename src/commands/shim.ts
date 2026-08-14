@@ -19,15 +19,22 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { checkPackages } from '../checks/package-guard/evaluate.js';
-import { parseCommand } from '../checks/package-guard/parse-install.js';
+import { checkPackages, checkPackagesForEcosystem } from '../checks/package-guard/evaluate.js';
+import {
+  parseCargoCommand,
+  parseCommand,
+  parsePipCommand,
+} from '../checks/package-guard/parse-install.js';
 import { newWorkingTreeDependencies, repoRootOrCwd } from '../checks/package-guard/staged-deps.js';
 import { loadConfig } from '../config/load.js';
 import { denyReason, formatVerdict } from '../output/format.js';
 import { isRisky } from '../types.js';
 
-/** The clients we shim. All of them install from the npm registry, so one script covers each. */
-const CLIENTS = ['npm', 'npx', 'pnpm', 'yarn', 'bun'];
+/**
+ * The npm clients we shim. All of them install from the npm registry.
+ * pip/pip3/python/python3 cover PyPI. cargo covers crates.io.
+ */
+const CLIENTS = ['npm', 'npx', 'pnpm', 'yarn', 'bun', 'pip', 'pip3', 'python', 'python3', 'cargo'];
 
 /**
  * What `check-command` exits with when it decides the command should not run.
@@ -282,6 +289,11 @@ function windowsShim(client: string): string {
  * What the shim calls. Takes the whole command line as one string, checks whatever it would pull
  * from the registry, and answers with an exit code.
  *
+ * Handles three ecosystems:
+ *  - npm/npx/pnpm/yarn/bun → npm registry
+ *  - pip/pip3/python -m pip → PyPI
+ *  - cargo add/install → crates.io
+ *
  * Output goes to stderr so it cannot land in anything that reads the client's stdout.
  */
 export async function runCheckCommand(command: string | undefined): Promise<number> {
@@ -289,18 +301,70 @@ export async function runCheckCommand(command: string | undefined): Promise<numb
     return 0;
   }
 
-  const { installs, executes, lockfile } = parseCommand(command);
   const repoRoot = repoRootOrCwd();
+  const config = loadConfig(repoRoot);
 
+  // Detect ecosystem from the first token of the command.
+  const firstToken = command.trim().split(/\s+/)[0] ?? '';
+
+  // PyPI ecosystem
+  if (
+    firstToken === 'pip' ||
+    firstToken === 'pip3' ||
+    /^pip\d/.test(firstToken) ||
+    firstToken === 'python' ||
+    firstToken === 'python3' ||
+    /^python\d/.test(firstToken)
+  ) {
+    const names = parsePipCommand(command);
+    if (names.length === 0) return 0;
+    const verdicts = await checkPackagesForEcosystem('pypi', names, config);
+    for (const verdict of verdicts) {
+      const message = formatVerdict(verdict, process.stderr);
+      if (message) {
+        console.error('');
+        console.error(message);
+      }
+    }
+    const risky = verdicts.filter(isRisky);
+    if (config.mode === 'strict' && risky.length > 0) {
+      console.error('');
+      console.error(denyReason(risky));
+      return BLOCK_EXIT_CODE;
+    }
+    return 0;
+  }
+
+  // Cargo ecosystem
+  if (firstToken === 'cargo') {
+    const names = parseCargoCommand(command);
+    if (names.length === 0) return 0;
+    const verdicts = await checkPackagesForEcosystem('cargo', names, config);
+    for (const verdict of verdicts) {
+      const message = formatVerdict(verdict, process.stderr);
+      if (message) {
+        console.error('');
+        console.error(message);
+      }
+    }
+    const risky = verdicts.filter(isRisky);
+    if (config.mode === 'strict' && risky.length > 0) {
+      console.error('');
+      console.error(denyReason(risky));
+      return BLOCK_EXIT_CODE;
+    }
+    return 0;
+  }
+
+  // Default: npm ecosystem
+  const { installs, executes, lockfile } = parseCommand(command);
   const names = [...new Set([...installs, ...executes])];
   if (names.length === 0) {
     if (!lockfile) return 0;
-
     const workingTree = newWorkingTreeDependencies(repoRoot);
     if (workingTree.length === 0) return 0;
     names.push(...workingTree);
   }
-  const config = loadConfig(repoRoot);
   const verdicts = await checkPackages(names, config);
 
   for (const verdict of verdicts) {

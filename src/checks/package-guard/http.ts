@@ -21,12 +21,12 @@ export class RequestFailed extends Error {
 }
 
 /** Fetches a URL, retrying once if the attempt times out or the connection fails. */
-export async function get(url: string): Promise<Response> {
+export async function get(url: string, headers?: Record<string, string>): Promise<Response> {
   let last: RequestFailed | null = null;
 
   for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
     try {
-      return await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+      return await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS), headers });
     } catch (error) {
       last = new RequestFailed(describe(error), isTimeout(error));
     }

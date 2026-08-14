@@ -256,3 +256,160 @@ function packageNameFrom(token: string): string | null {
   const name = token.slice(0, separator);
   return isValidPackageName(name) ? name : null;
 }
+
+// ─── pip / cargo parsing ────────────────────────────────────────────────────
+
+/**
+ * pip package name rules (PEP 508 / 625):
+ * Letters, numbers, hyphens, underscores, and dots. Must start and end with a letter or number.
+ */
+const PYPI_PACKAGE_NAME = /^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$/;
+
+export function isValidPypiName(token: string): boolean {
+  if (token.length === 0 || token.length > 214) return false;
+  return PYPI_PACKAGE_NAME.test(token);
+}
+
+/**
+ * cargo crate name rules: letters, numbers, hyphens, underscores. Must start with a letter.
+ * https://doc.rust-lang.org/cargo/reference/manifest.html#the-name-field
+ */
+const CARGO_CRATE_NAME = /^[A-Za-z][A-Za-z0-9_-]*$/;
+
+export function isValidCargoCrate(token: string): boolean {
+  if (token.length === 0 || token.length > 64) return false;
+  return CARGO_CRATE_NAME.test(token);
+}
+
+/** Strip a version specifier from a pip requirement (e.g. "requests==2.28.0" → "requests"). */
+function pypiNameFrom(token: string): string | null {
+  // pip accepts: name, name==ver, name>=ver, name[extras], name @ url
+  // Strip extras: requests[security] → requests
+  const noExtras = token.replace(/\[.*\]/, '');
+  // Strip version specifier: anything after ==, >=, <=, ~=, !=, >, <, @
+  const name = noExtras.split(/[=<>!~@]/)[0]?.trim() ?? '';
+  return isValidPypiName(name) ? name : null;
+}
+
+/** Strip a version specifier from a cargo requirement (e.g. "serde@1.0" → "serde"). */
+function cargoNameFrom(token: string): string | null {
+  const name = token.split('@')[0]?.trim() ?? '';
+  return isValidCargoCrate(name) ? name : null;
+}
+
+/** Flags that pip uses whose next token is a value, not a package name. */
+const PIP_VALUE_FLAGS = new Set([
+  '-r',
+  '--requirement',
+  '-c',
+  '--constraint',
+  '--index-url',
+  '-i',
+  '--extra-index-url',
+  '--trusted-host',
+  '-t',
+  '--target',
+  '--prefix',
+  '-d',
+  '--download',
+  '--root',
+  '--platform',
+  '--implementation',
+  '--abi',
+  '--python-version',
+  '--no-binary',
+  '--only-binary',
+  '--progress-bar',
+  '--log',
+]);
+
+const PIP_INSTALL_SUBCOMMANDS = new Set(['install', 'download']);
+
+/**
+ * Parses a pip/pip3 or `python -m pip` command and returns the package names to be installed.
+ * Errs on the side of returning nothing: a missed package is a missed warning.
+ */
+export function parsePipCommand(command: string): string[] {
+  const results: string[] = [];
+  for (const segment of command
+    .split(/&&|\|\||[;&\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean)) {
+    results.push(...parsePipSegment(segment));
+  }
+  return [...new Set(results)];
+}
+
+function parsePipSegment(segment: string): string[] {
+  const tokens = segment.match(/(?:"[^"]*"|'[^']*'|\S)+/g) ?? [];
+  let idx = 0;
+  const head = tokens[idx++];
+  if (!head) return [];
+
+  // Handle: python -m pip install ... / python3 -m pip install ...
+  if (head === 'python' || head === 'python3' || head === 'python3.11' || /^python\d/.test(head)) {
+    if (tokens[idx] !== '-m') return [];
+    idx++;
+    if (tokens[idx] !== 'pip') return [];
+    idx++;
+  } else if (head !== 'pip' && head !== 'pip3' && !/^pip\d/.test(head)) {
+    return [];
+  }
+
+  // Now at pip subcommand
+  const subcommand = tokens[idx++];
+  if (!subcommand || !PIP_INSTALL_SUBCOMMANDS.has(subcommand)) return [];
+
+  const names: string[] = [];
+  while (idx < tokens.length) {
+    const token = tokens[idx++]!;
+    if (token.startsWith('-')) {
+      // Skip value-taking flags
+      if (PIP_VALUE_FLAGS.has(token)) idx++;
+      continue;
+    }
+    const name = pypiNameFrom(token);
+    if (name) names.push(name);
+  }
+  return names;
+}
+
+const CARGO_INSTALL_SUBCOMMANDS = new Set(['add', 'install']);
+
+/**
+ * Parses a cargo command and returns the crate names to be installed.
+ * Handles: `cargo add serde`, `cargo install ripgrep`, `cargo add serde tokio`
+ */
+export function parseCargoCommand(command: string): string[] {
+  const results: string[] = [];
+  for (const segment of command
+    .split(/&&|\|\||[;&\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean)) {
+    results.push(...parseCargoSegment(segment));
+  }
+  return [...new Set(results)];
+}
+
+function parseCargoSegment(segment: string): string[] {
+  const tokens = segment.match(/(?:"[^"]*"|'[^']*'|\S)+/g) ?? [];
+  let idx = 0;
+  const head = tokens[idx++];
+  if (head !== 'cargo') return [];
+
+  const subcommand = tokens[idx++];
+  if (!subcommand || !CARGO_INSTALL_SUBCOMMANDS.has(subcommand)) return [];
+
+  const names: string[] = [];
+  while (idx < tokens.length) {
+    const token = tokens[idx++]!;
+    if (token.startsWith('-')) {
+      // --features, --path, etc. — skip any following value unless it starts with -
+      if (!token.includes('=') && idx < tokens.length && !tokens[idx]!.startsWith('-')) idx++;
+      continue;
+    }
+    const name = cargoNameFrom(token);
+    if (name) names.push(name);
+  }
+  return names;
+}
