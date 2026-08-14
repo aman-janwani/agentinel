@@ -2,43 +2,83 @@ import type { RegistryResult } from '../../types.js';
 import { get, isTimeout } from './http.js';
 
 /**
- * Fetches crate metadata from the crates.io API.
+ * Fetches crate metadata and downloads from the crates.io API.
  * https://crates.io/api/v1/crates/<name>
  *
- * Maps the crates.io response to the shared RegistryResult type so evaluate() needs zero changes.
- * crates.io does not yank entire crates (only individual versions), so securityHold is always false.
+ * Maps the crates.io response to both RegistryResult and DownloadsResult
+ * in a single request to avoid duplicate network calls.
  */
-export async function fetchCargoRegistry(name: string): Promise<RegistryResult> {
+export async function fetchCargoRegistryAndDownloads(
+  name: string,
+): Promise<{ registry: RegistryResult; downloads: import('../../types.js').DownloadsResult }> {
   const url = `https://crates.io/api/v1/crates/${encodeURIComponent(name)}`;
 
   let response: Response;
   try {
     response = await get(url, { 'User-Agent': 'agentinel-security-scanner/1.2' });
   } catch (error) {
-    return { kind: 'unavailable', reason: describeFailure(error) };
+    return {
+      registry: { kind: 'unavailable', reason: describeFailure(error) },
+      downloads: { kind: 'unavailable', reason: describeFailure(error) },
+    };
   }
 
   if (response.status === 404) {
-    return { kind: 'not-found' };
+    return {
+      registry: { kind: 'not-found' },
+      downloads: { kind: 'no-data' },
+    };
   }
 
   if (!response.ok) {
-    return { kind: 'unavailable', reason: `crates.io returned ${response.status}` };
+    const reason = `crates.io returned ${response.status}`;
+    return {
+      registry: { kind: 'unavailable', reason },
+      downloads: { kind: 'unavailable', reason },
+    };
   }
 
   let body: unknown;
   try {
     body = await response.json();
   } catch (error) {
-    return { kind: 'unavailable', reason: describeFailure(error) };
+    return {
+      registry: { kind: 'unavailable', reason: describeFailure(error) },
+      downloads: { kind: 'unavailable', reason: describeFailure(error) },
+    };
   }
 
   const facts = readCargoFacts(body);
   if (facts === null) {
-    return { kind: 'unavailable', reason: 'crates.io response had no usable metadata' };
+    return {
+      registry: { kind: 'unavailable', reason: 'crates.io response had no usable metadata' },
+      downloads: { kind: 'unavailable', reason: 'crates.io response had no usable metadata' },
+    };
   }
 
-  return { kind: 'found', facts };
+  const downloads = readCargoDownloads(body);
+
+  return {
+    registry: { kind: 'found', facts },
+    downloads,
+  };
+}
+
+function readCargoDownloads(body: unknown): import('../../types.js').DownloadsResult {
+  if (typeof body !== 'object' || body === null) return { kind: 'no-data' };
+  const doc = body as Record<string, unknown>;
+  const krate = doc.crate as Record<string, unknown> | null;
+  if (!krate) return { kind: 'no-data' };
+
+  const recent = krate.recent_downloads;
+  if (typeof recent === 'number') {
+    return {
+      kind: 'found',
+      lastMonth: recent,
+    };
+  }
+
+  return { kind: 'no-data' };
 }
 
 function readCargoFacts(body: unknown): import('../../types.js').PackageFacts | null {

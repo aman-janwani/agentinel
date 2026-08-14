@@ -34,7 +34,7 @@ import { isRisky } from '../types.js';
  * The npm clients we shim. All of them install from the npm registry.
  * pip/pip3/python/python3 cover PyPI. cargo covers crates.io.
  */
-const CLIENTS = ['npm', 'npx', 'pnpm', 'yarn', 'bun', 'pip', 'pip3', 'python', 'python3', 'cargo'];
+const CLIENTS = ['npm', 'npx', 'pnpm', 'yarn', 'bun', 'pip', 'pip3', 'cargo'];
 
 /**
  * What `check-command` exits with when it decides the command should not run.

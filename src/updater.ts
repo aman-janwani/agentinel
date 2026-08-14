@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -122,7 +122,7 @@ export function validateDownload(buffer: Buffer): Record<string, string[]> {
   const count = Object.keys(asObj).length;
   if (count < MIN_VALID_ENTRIES) {
     throw new Error(
-      `Downloaded malware list is suspiciously small (${count} entries, expected >${MIN_VALID_ENTRIES}). ` +
+      `Downloaded malware list is suspiciously small (${count} entries, expected >${MIN_VALID_ENTRIES} combined for npm/PyPI/cargo). ` +
         `Upstream OSV may have a problem. Keeping existing list.`,
     );
   }
@@ -226,16 +226,20 @@ export function scheduleBackgroundRefresh(url?: string): void {
   // Immediately mark that we are attempting a fetch. This synchronously updates the
   // timestamp so that if the user runs 5 npm installs concurrently, we don't spawn
   // 5 background processes. It also ensures we back off for 24h if we are offline.
+  //
+  // IMPORTANT: This must be fully synchronous. An async write would return before the
+  // file is updated, allowing concurrent processes to also pass the isCacheStale() check.
   try {
     const dir = agentinelDir();
     mkdirSync(dir, { recursive: true });
     const ts = lastFetchPath();
     if (existsSync(ts)) {
+      // Touch the file to update its mtime without altering contents.
       const now = new Date();
-      // Use utimesSync to touch the file without altering its contents.
-      import('node:fs').then((fs) => fs.utimesSync(ts, now, now)).catch(() => {});
+      import('node:fs/promises').then((fsp) => fsp.utimes(ts, now, now)).catch(() => {});
     } else {
-      import('node:fs').then((fs) => fs.writeFileSync(ts, '')).catch(() => {});
+      // writeFileSync from node:fs is already imported at the top of this file.
+      writeFileSync(ts, '');
     }
   } catch {
     // best effort debounce

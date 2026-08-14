@@ -2,9 +2,14 @@ import { isAllowlisted } from '../../config/schema.js';
 import type { Config, DownloadsResult, Reason, RegistryResult, Verdict } from '../../types.js';
 import { MAX_AGE_DAYS, MIN_MONTHLY_DOWNLOADS, SIZE_JUMP_RATIO } from '../../types.js';
 import { fetchDownloads } from './downloads.js';
-import { isKnownMalware } from './malware.js';
+import { fetchPypiDownloads } from './downloads-ecosystem.js';
+import type { Ecosystem } from './ecosystem.js';
+import { normalisePypi } from './ecosystem.js';
+import { isKnownMalware, isKnownMalwareForEcosystem } from './malware.js';
 import { isValidPackageName } from './parse-install.js';
 import { fetchRegistry } from './registry.js';
+import { fetchCargoRegistryAndDownloads } from './registry-cargo.js';
+import { fetchPypiRegistry } from './registry-pypi.js';
 import type { Resolved } from './resolve.js';
 
 const MS_PER_DAY = 86400000;
@@ -282,19 +287,13 @@ export function scanForKnownMalware(tree: Resolved[], config: Config): Verdict[]
  * Uses the correct registry and download APIs for that ecosystem.
  */
 export async function checkPackagesForEcosystem(
-  ecosystem: import('./ecosystem.js').Ecosystem,
+  ecosystem: Ecosystem,
   names: string[],
   config: Config,
 ): Promise<Verdict[]> {
   if (ecosystem === 'npm') {
     return checkPackages(names, config);
   }
-
-  const { fetchPypiRegistry } = await import('./registry-pypi.js');
-  const { fetchCargoRegistry } = await import('./registry-cargo.js');
-  const { fetchPypiDownloads, fetchCargoDownloads } = await import('./downloads-ecosystem.js');
-  const { isKnownMalwareForEcosystem } = await import('./malware.js');
-  const { normalisePypi } = await import('./ecosystem.js');
 
   const now = new Date();
   const verdicts: Verdict[] = [];
@@ -308,10 +307,19 @@ export async function checkPackagesForEcosystem(
       continue;
     }
 
-    const [registry, downloads] = await Promise.all([
-      ecosystem === 'pypi' ? fetchPypiRegistry(name) : fetchCargoRegistry(name),
-      ecosystem === 'pypi' ? fetchPypiDownloads(name) : fetchCargoDownloads(name),
-    ]);
+    let registry: RegistryResult;
+    let downloads: DownloadsResult;
+
+    if (ecosystem === 'cargo') {
+      const combined = await fetchCargoRegistryAndDownloads(name);
+      registry = combined.registry;
+      downloads = combined.downloads;
+    } else {
+      [registry, downloads] = await Promise.all([
+        fetchPypiRegistry(name),
+        fetchPypiDownloads(name),
+      ]);
+    }
 
     // For version-specific malware check, use registry-reported latest version
     const version = registry.kind === 'found' ? registry.facts.latestVersion : null;

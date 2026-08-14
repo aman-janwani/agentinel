@@ -13,7 +13,7 @@ export async function fetchPypiDownloads(name: string): Promise<DownloadsResult>
 
   let response: Response;
   try {
-    response = await get(url);
+    response = await get(url, { 'User-Agent': 'agentinel-security-scanner/1.2' });
   } catch (error) {
     return { kind: 'unavailable', reason: describeFailure(error) };
   }
