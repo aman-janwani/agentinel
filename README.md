@@ -22,7 +22,7 @@ AI coding agents (like Claude Code, Copilot, or Cursor) install dependencies on 
 - Sometimes they install a package whose name they entirely **hallucinated**. 
 - Sometimes, they install a legitimate package that pulls in a compromised one three levels deep.
 
-**Agentinel** checks every package an install would bring in, at the exact moment the agent reaches for it. It evaluates the package against a bundled, locally-run database of over 216,000 known malicious packages and zero-cost registry heuristics. It then tells the agent why something looks wrong so the AI can back off and reconsider.
+**Agentinel** checks every package an install would bring in, at the exact moment the agent reaches for it. It evaluates the package against a bundled, locally-run database of over 230,000 known malicious packages and zero-cost registry heuristics (for npm, PyPI, and crates.io). It then tells the agent why something looks wrong so the AI can back off and reconsider.
 
 Every other tool in this space guards your terminal. **Agentinel guards your agent.**
 
@@ -110,7 +110,7 @@ Agentinel provides an opt-in **PATH shim**. By default, running `npx asen init` 
 npx asen init
 ```
 
-This puts a tiny, fail-open wrapper script earlier in your `PATH`. When you type `npm install <pkg>`, the shim checks the package first. If it's safe, the real `npm` command runs instantly. 
+This puts a tiny, fail-open wrapper script earlier in your `PATH`. When you type `npm install <pkg>`, `pip install <pkg>`, or `cargo add <pkg>`, the shim checks the package first. If it's safe, the real command runs instantly. 
 
 As a bonus, if you just run a plain `npm install` with no arguments, the shim instantly checks your unstaged `package.json` for any newly added dependencies, ensuring that packages you pasted in are scanned before they resolve!
 
