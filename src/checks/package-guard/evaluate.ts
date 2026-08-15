@@ -2,9 +2,14 @@ import { isAllowlisted } from '../../config/schema.js';
 import type { Config, DownloadsResult, Reason, RegistryResult, Verdict } from '../../types.js';
 import { MAX_AGE_DAYS, MIN_MONTHLY_DOWNLOADS, SIZE_JUMP_RATIO } from '../../types.js';
 import { fetchDownloads } from './downloads.js';
-import { isKnownMalware } from './malware.js';
+import { fetchPypiDownloads } from './downloads-ecosystem.js';
+import type { Ecosystem } from './ecosystem.js';
+import { normalisePypi } from './ecosystem.js';
+import { isKnownMalware, isKnownMalwareForEcosystem } from './malware.js';
 import { isValidPackageName } from './parse-install.js';
 import { fetchRegistry } from './registry.js';
+import { fetchCargoRegistryAndDownloads } from './registry-cargo.js';
+import { fetchPypiRegistry } from './registry-pypi.js';
 import type { Resolved } from './resolve.js';
 
 const MS_PER_DAY = 86400000;
@@ -272,6 +277,58 @@ export function scanForKnownMalware(tree: Resolved[], config: Config): Verdict[]
     if (isKnownMalware(name, version)) {
       verdicts.push({ kind: 'flagged', name, reasons: [{ kind: 'known-malware' }] });
     }
+  }
+
+  return verdicts;
+}
+
+/**
+ * Full network check for a list of packages from a specific ecosystem (pypi or cargo).
+ * Uses the correct registry and download APIs for that ecosystem.
+ */
+export async function checkPackagesForEcosystem(
+  ecosystem: Ecosystem,
+  names: string[],
+  config: Config,
+): Promise<Verdict[]> {
+  if (ecosystem === 'npm') {
+    return checkPackages(names, config);
+  }
+
+  const now = new Date();
+  const verdicts: Verdict[] = [];
+
+  for (const rawName of names) {
+    const name = ecosystem === 'pypi' ? normalisePypi(rawName) : rawName;
+
+    // Check local malware list first — fast, offline, no network needed
+    if (isKnownMalwareForEcosystem(ecosystem, name, null)) {
+      verdicts.push({ kind: 'flagged', name, reasons: [{ kind: 'known-malware' }] });
+      continue;
+    }
+
+    let registry: RegistryResult;
+    let downloads: DownloadsResult;
+
+    if (ecosystem === 'cargo') {
+      const combined = await fetchCargoRegistryAndDownloads(name);
+      registry = combined.registry;
+      downloads = combined.downloads;
+    } else {
+      [registry, downloads] = await Promise.all([
+        fetchPypiRegistry(name),
+        fetchPypiDownloads(name),
+      ]);
+    }
+
+    // For version-specific malware check, use registry-reported latest version
+    const version = registry.kind === 'found' ? registry.facts.latestVersion : null;
+    if (isKnownMalwareForEcosystem(ecosystem, name, version)) {
+      verdicts.push({ kind: 'flagged', name, reasons: [{ kind: 'known-malware' }] });
+      continue;
+    }
+
+    verdicts.push(evaluate(name, registry, downloads, config, now));
   }
 
   return verdicts;
