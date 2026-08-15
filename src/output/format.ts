@@ -88,7 +88,7 @@ function banner(verdict: Verdict): Banner | null {
         body: [
           verdict.name,
           '',
-          'No package by that name is published on npm, so this install will fail.',
+          'No package by that name is published on the registry, so this install will fail.',
           'A name an agent invented is exactly what a slopsquatter waits to register.',
         ],
         action: 'Check the spelling before installing anything under this name.',
@@ -245,7 +245,7 @@ export function denyReason(verdicts: Verdict[]): string {
       const why = verdict.reasons.map(describeReason).join('; ');
       problems.push(`${verdict.name} (${why})`);
     } else if (verdict.kind === 'not-found') {
-      problems.push(`${verdict.name} (does not exist on the npm registry)`);
+      problems.push(`${verdict.name} (does not exist on the registry)`);
     }
   }
 
