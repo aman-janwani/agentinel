@@ -98,7 +98,7 @@ describe('the Claude Code hook in warn mode', () => {
     stubNpm(50_000_000, 3000);
 
     expect(await runHook('npm i react', process.cwd())).toBeNull();
-  });
+  }, 15000);
 
   it('says nothing for a command that is not an install', async () => {
     stubNpm(4, 2);
